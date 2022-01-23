@@ -3,14 +3,14 @@ python datafree_kd.py \
 --dataset cifar10 \
 --batch_size 128 \
 --synthesis_batch_size 256 \
---teacher wrn40_2 \
---student wrn16_1 \
+--teacher resnet34 \
+--student resnet18 \
 --lr 0.1 \
 --kd_steps 2000 \
 --ep_steps 2000 \
 --g_steps 200 \
 --lr_g 1e-3 \
---epochs 40 \
+--epochs 80 \
 --lr_decay_milestones 25,30,35 \
 --adv 0.5 \
 --bn 1 \
@@ -21,7 +21,8 @@ python datafree_kd.py \
 --act 0 \
 --balance 0 \
 --T 20 \
---gpu 0 \
+--gpu 6 \
 --cmi_init run/cmi-preinverted-wrn402 \
 --save_dir run/adv_cmi_cifar10 \
---log_tag adv_cmi_cifar10
+--log_tag adv_cmi_cifar10 \
+--data_root /data/lijingru/cifar10/

@@ -71,7 +71,7 @@ class DeepInvSyntheiszer(BaseSynthesis):
         #kld_loss = nn.KLDivLoss(reduction='batchmean').cuda()
         self.student.eval()
         best_cost = 1e6
-        inputs = torch.randn( size=[self.synthesis_batch_size, *self.img_size], device=self.device ).requires_grad_()
+        inputs = torch.randn( size=[self.synthesis_batch_size, *self.img_size], device=self.device).requires_grad_()
         if targets is None:
             targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
             targets = targets.sort()[0] # sort for better visualization

@@ -27,13 +27,22 @@ import torchvision.models as models
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
 # Data Free
-parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi'])
+parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
 parser.add_argument('--act', default=0, type=float, help='scaling factor for activation loss used in DAFL')
 parser.add_argument('--balance', default=0, type=float, help='scaling factor for class balance')
 parser.add_argument('--save_dir', default='run/synthesis', type=str)
+parser.add_argument('--no_logits', type=int, default=1)
+parser.add_argument('--logit_correction', type=str, default='mean', choices=['none', 'mean'])
+parser.add_argument('--loss', type=str, default='l1', choices=['l1', 'kl'])
+parser.add_argument('--grad_m', type=int, default=1, help='Number of steps to approximate the gradients')
+parser.add_argument('--grad_epsilon', type=float, default=1e-3) 
+    
+
+parser.add_argument('--forward_differences', type=int, default=1, help='Always set to 1')
+
 
 parser.add_argument('--cr', default=1, type=float, help='scaling factor for contrastive model inversion')
 parser.add_argument('--cr_T', default=0.5, type=float, help='temperature for contrastive model inversion')
@@ -233,7 +242,7 @@ def main_worker(gpu, ngpus_per_node, args):
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
-    teacher.load_state_dict(torch.load('checkpoints/pretrained/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     student = prepare_model(student)
     teacher = prepare_model(teacher)
     criterion = datafree.criterions.KLDiv(T=args.T)
@@ -279,6 +288,23 @@ def main_worker(gpu, ngpus_per_node, args):
                  adv=args.adv, bn=args.bn, oh=args.oh, cr=args.cr, cr_T=args.cr_T,
                  save_dir=args.save_dir, transform=ori_dataset.transform,
                  normalizer=args.normalizer, device=args.gpu)
+    elif args.method == 'zskd':
+        
+        synthesizer = datafree.synthesis.ZSKDSynthesis(
+                 teacher=teacher, student=student, num_classes=num_classes, 
+                 img_size=(3, 32, 32), iterations=args.g_steps, lr_g=args.lr_g,
+                 synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,
+                 save_dir=args.save_dir, transform=ori_dataset.transform,
+                 normalizer=args.normalizer, device=args.gpu, 
+                 T=args.T)
+    elif args.method == 'dfme':
+        nz = 512
+        generator = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
+        generator = prepare_model(generator)
+        criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv()
+        synthesizer = datafree.synthesis.DFMESynthesizer(
+            teacher=teacher, student=student, generator=generator, nz=nz, img_size=(3, 32, 32), iterations=args.g_steps, lr_g=args.lr_g, synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,normalizer=args.normalizer, device=args.gpu, logit_correction=args.logit_correction, no_logit=args.no_logits, grad_epsilon=args.grad_epsilon, grad_m=args.grad_m,loss=args.loss
+        )
     else: raise NotImplementedError
         
     ############################################
@@ -335,6 +361,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.current_epoch=epoch
 
         for _ in range( args.ep_steps//args.kd_steps ): # total kd_steps < ep_steps
+            # two-stage
             # 1. Data synthesis
             vis_results = synthesizer.synthesize() # g_steps
             # 2. Knowledge distillation

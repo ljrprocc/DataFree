@@ -1,5 +1,5 @@
 python datafree_kd.py \
---method dafl \
+--method dfme \
 --dataset cifar10 \
 --batch_size 256 \
 --teacher wrn40_2 \
@@ -11,11 +11,12 @@ python datafree_kd.py \
 --g_steps 1 \
 --lr_g 1e-3 \
 --adv 0 \
---T 20 \
+--T 5 \
 --bn 0 \
 --oh 1 \
 --act 0.001 \
 --balance 20 \
---gpu 0 \
+--gpu 3 \
 --seed 0 \
---data_root /data/lijingru/cifar10/
+--data_root /data/lijingru/cifar10/ \
+--loss l1
