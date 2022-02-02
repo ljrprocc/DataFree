@@ -298,8 +298,8 @@ def main_worker(gpu, ngpus_per_node, args):
                  normalizer=args.normalizer, device=args.gpu, 
                  T=args.T)
     elif args.method == 'dfme':
-        nz = 512
-        generator = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
+        nz = 256
+        generator = datafree.models.generator.Generator(nz=nz, ngf=64, img_size=32, nc=3)
         generator = prepare_model(generator)
         criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv()
         synthesizer = datafree.synthesis.DFMESynthesizer(

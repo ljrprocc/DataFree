@@ -5,13 +5,13 @@ python datafree_kd.py \
 --teacher wrn40_2 \
 --student wrn16_1 \
 --lr 0.1 \
---epochs 200 \
+--epochs 210 \
 --kd_steps 5 \
 --ep_steps 400 \
---g_steps 1 \
---lr_g 1e-3 \
+--g_steps 5 \
+--lr_g 1e-4 \
 --adv 0 \
---T 5 \
+--T 20 \
 --bn 0 \
 --oh 1 \
 --act 0.001 \
@@ -19,4 +19,4 @@ python datafree_kd.py \
 --gpu 3 \
 --seed 0 \
 --data_root /data/lijingru/cifar10/ \
---loss l1
+--loss kl

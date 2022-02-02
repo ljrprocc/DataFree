@@ -37,7 +37,7 @@ class GenerativeSynthesizer(BaseSynthesis):
 
         # generator
         self.generator = generator.to(device).train()
-        self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=self.lr_g, betas=(0.5,0.999))
+        self.optimizer = torch.optim.Adam(self.generator.parameters(), lr=self.lr_g, betas=(0.9,0.99))
         self.distributed = distributed
         self.use_fp16 = use_fp16
         self.autocast = autocast # for FP16
@@ -58,6 +58,7 @@ class GenerativeSynthesizer(BaseSynthesis):
             z = torch.randn( size=(self.synthesis_batch_size, self.nz), device=self.device )
             inputs = self.generator(z)
             inputs = self.normalizer(inputs)
+            # inputs = torch.tanh(inputs)
             t_out, t_feat = self.teacher(inputs, return_features=True)
             loss_bn = sum([h.r_feature for h in self.hooks])
             loss_oh = F.cross_entropy( t_out, t_out.max(1)[1] )

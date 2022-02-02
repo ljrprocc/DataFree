@@ -54,6 +54,7 @@ class DFMESynthesizer(BaseSynthesis):
             z = torch.randn( size=(self.synthesis_batch_size, self.nz), device=self.device )
             inputs = self.generator(z)
             inputs = self.normalizer(inputs)
+            # inputs = torch.tanh(inputs)
             # t_out = self.teacher(inputs)
             approx_grad_wrt_x, loss_G = estimate_gradient_objective(self.teacher, self.student, inputs, epsilon =self.grad_epsilon, m = self.grad_m, num_classes=self.num_classes,  device=self.device, pre_x=True, loss=self.loss, no_logits=self.no_logit, logit_correction=self.logit_correction)
             inputs.backward(approx_grad_wrt_x)
