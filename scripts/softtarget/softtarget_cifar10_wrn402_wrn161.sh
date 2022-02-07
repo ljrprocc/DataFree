@@ -1,0 +1,18 @@
+python datafree_kd.py \
+--method softtarget \
+--dataset cifar10 \
+--batch_size 512 \
+--teacher wrn40_2 \
+--student wrn16_1 \
+--lr 0.1 \
+--epochs 2000 \
+--kd_steps 400 \
+--ep_steps 400 \
+--g_steps 1500 \
+--lr_g 0.001 \
+--act 0.1 \
+--gpu 6 \
+--seed 0 \
+--save_dir run/softtarget \
+--log_tag softtarget \
+--data_root /data/lijingru/cifar10/

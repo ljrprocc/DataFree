@@ -27,7 +27,7 @@ import torchvision.models as models
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
 # Data Free
-parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme'])
+parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
@@ -305,6 +305,13 @@ def main_worker(gpu, ngpus_per_node, args):
         synthesizer = datafree.synthesis.DFMESynthesizer(
             teacher=teacher, student=student, generator=generator, nz=nz, img_size=(3, 32, 32), iterations=args.g_steps, lr_g=args.lr_g, synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,normalizer=args.normalizer, device=args.gpu, logit_correction=args.logit_correction, no_logit=args.no_logits, grad_epsilon=args.grad_epsilon, grad_m=args.grad_m,loss=args.loss
         )
+    elif args.method == 'softtarget':
+        synthesizer = datafree.synthesis.SoftTargetSynthesizer(
+                 teacher=teacher, student=student, num_classes=num_classes, 
+                 img_size=(3, 32, 32), iterations=args.g_steps, lr_g=args.lr_g,
+                 synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,
+                 save_dir=args.save_dir, transform=ori_dataset.transform,
+                 normalizer=args.normalizer, device=args.gpu, a=args.act)
     else: raise NotImplementedError
         
     ############################################
