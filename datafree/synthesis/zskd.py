@@ -15,8 +15,8 @@ def compute_simiarity(x, scale=1.0):
 
 def getDirch(n, sim_matrix, row_idx, scale=1.0):
     sim = sim_matrix[row_idx]
-    tmp = (sim - sim.min()) / (sim.max() - sim.min())
-    dist = Dirichlet(tmp*scale+0.00001)
+    # tmp = (sim - sim.min()) / (sim.max() - sim.min())
+    dist = Dirichlet(sim*scale+0.0001)
     x = dist.rsample((n, ))
     return x
 
@@ -41,7 +41,7 @@ class ZSKDSynthesis(BaseSynthesis):
         self.num_classes = num_classes
         self.distributed = distributed
         self.device = device
-        x = self.teacher.fc.weight
+        x = self.teacher.linear.weight
         # print(x.shape)
         self.sim_mat_big = compute_simiarity(x, 1)
         self.sim_mat_small = compute_simiarity(x, 0.1)
@@ -63,11 +63,12 @@ class ZSKDSynthesis(BaseSynthesis):
 
             sampled_label = getDirch(self.sample_batch_size, self.sim_mat_big, c, 1)
             # print(sampled_label.shape)
-            for i in range(self.iterations):
+            for i in range(self.iterations // self.num_classes):
                 
-                logit_t = self.teacher(inputs)
+                logit_t = self.teacher(self.normalizer(inputs))
                 # print(logit_t.shape)
-                loss = -(F.log_softmax(logit_t / self.T, 1) * sampled_label.detach()).sum(1).mean()
+                # loss = -(F.log_softmax(logit_t / self.T, 1) * sampled_label.detach()).sum(1) / sampled_label.size(0)
+                loss = self.T ** 2 * F.kl_div(torch.log_softmax(logit_t / 20, 1), sampled_label.detach(), size_average=False) / sampled_label.size(0)
                 # print(loss)
                 if best_cost > loss.item():
                     best_cost = loss.item()
@@ -75,7 +76,7 @@ class ZSKDSynthesis(BaseSynthesis):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                inputs.data = clip_images(inputs.data, self.normalizer.mean, self.normalizer.std)
+                # inputs.data = clip_images(inputs.data, self.normalizer.mean, self.normalizer.std)
             self.data_pool.add( best_inputs )
         dst = self.data_pool.get_dataset(transform=self.transform)
         if self.distributed:

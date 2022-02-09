@@ -7,13 +7,14 @@ import random
 
 from .base import BaseSynthesis
 from datafree.utils import ImagePool, DataIter, clip_images
+from .deepinversion import jitter_and_flip
 
 class SoftTargetSynthesizer(BaseSynthesis):
     def __init__(self, teacher, student, num_classes, img_size, 
                  iterations=1000, lr_g=0.001, progressive_scale=False,
                  synthesis_batch_size=128, sample_batch_size=128, 
                  a=1.0, sigma=1.0,
-                 save_dir='run/softtarget', transform=None,
+                 save_dir='run/softtarget', transform=None, T=20,
                  normalizer=None, device='cpu',
                  # TODO: FP16 and distributed training 
                  autocast=None, use_fp16=False, distributed=False, layer='fc_2'):
@@ -32,6 +33,7 @@ class SoftTargetSynthesizer(BaseSynthesis):
         self.sample_batch_size = sample_batch_size
         self.num_classes = num_classes
         self.distributed = distributed
+        self.T = T
 
         self.progressive_scale = progressive_scale
         self.use_fp16 = use_fp16
@@ -44,10 +46,11 @@ class SoftTargetSynthesizer(BaseSynthesis):
             self.weight = self.teacher.fc.weight
         else:
             if hasattr(self.teacher, 'layer4'):
-                self.weight = self.teacher.layer4.conv3.weight
+                self.weight = self.teacher.layer4[-1].conv2.weight
             else:
                 self.weight = self.teacher.block3.layer[-1].conv2.weight
-
+            # print(self.weight.shape)
+            # exit(-1)
             self.weight = F.adaptive_avg_pool2d(self.weight, (1, 1))
             self.weight = self.weight.view(self.weight.size(0), -1)
 
@@ -75,8 +78,11 @@ class SoftTargetSynthesizer(BaseSynthesis):
 
         '''
         self.student.eval()
+        self.teacher.eval()
         best_cost = 1e6
-        inputs = torch.randn(size=[self.synthesis_batch_size, *self.img_size]).to(self.device)
+        # inputs = torch.FloatTensor(size=[self.synthesis_batch_size, *self.img_size]).uniform_(-1, 1).to(self.device)
+        inputs = torch.randn(self.synthesis_batch_size, *self.img_size).to(self.device)
+        inputs = inputs.requires_grad_()
         if targets is None:
             targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
             targets = targets.sort()[0]
@@ -88,25 +94,36 @@ class SoftTargetSynthesizer(BaseSynthesis):
         distribution = torch.distributions.MultivariateNormal(torch.zeros(self.R.shape[0]), self.covariance)
         # distribution = torch.distributions.Normal(torch.zeros(self.R.shape[0]), scale=self.covariance)
         for it in range(self.iterations):
-            t_out, t_feat = self.teacher(inputs, return_features=True)
+            inputs = jitter_and_flip(inputs)
+            t_out, t_feat = self.teacher(self.normalizer(inputs), return_features=True)
             # sample feature
-            with torch.no_grad():
-                s_samples = distribution.rsample((self.synthesis_batch_size, )).to(self.device)
-                y_soft = self.teacher.fc(s_samples)
+            
+            s_samples = distribution.rsample((self.synthesis_batch_size, )).to(self.device)
+            # with torch.no_grad():
+            y_soft = self.teacher.linear(s_samples)
             # y_soft = torch.softmax(y_soft, 1)
             loss_act = - t_feat.abs().mean()
-            loss_d = F.kl_div(y_soft, torch.softmax(t_out, 1))
+            loss_d = F.kl_div(torch.log_softmax(y_soft.detach() / self.T, 1), torch.softmax(t_out / self.T, 1))
+            # loss_l2 = torch.norm(inputs, 2)
+            # loss_oh = F.cross_entropy( t_out, targets )
+            # print(torch.mean(inputs, (1,2,3)))
             loss = loss_d + self.a * loss_act
-            # print(loss_d, loss_act)
+            if best_cost > loss.item():
+                best_cost = loss.item()
+                best_inputs = inputs.data
+            # print(loss_d.item(), loss_act.item(), loss.item())
+            # print(torch.mean(inputs, (1,2,3)))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            inputs.data = clip_images(inputs.data, self.normalizer.mean, self.normalizer.std)
+            # print(torch.mean(inputs, (1,2,3)))
+            # exit(-1)
+            # inputs.data = clip_images(inputs.data, self.normalizer.mean, self.normalizer.std)
 
         self.student.train()
         # save best inputs and reset data loader
-        if self.normalizer:
-            best_inputs = self.normalizer(best_inputs, True)
+        # if self.normalizer:
+        #     best_inputs = self.normalizer(best_inputs, True)
         self.data_pool.add( best_inputs )
         dst = self.data_pool.get_dataset(transform=self.transform)
         if self.distributed:

@@ -2,14 +2,14 @@ python datafree_kd.py \
 --method zskd \
 --dataset cifar10 \
 --batch_size 256 \
---teacher wrn40_2 \
---student wrn16_1 \
+--teacher resnet34 \
+--student resnet18 \
 --lr 0.1 \
 --epochs 200 \
 --kd_steps 400 \
 --ep_steps 400 \
 --g_steps 1500 \
---lr_g 3 \
+--lr_g 1 \
 --T 20 \
 --act 0 \
 --balance 0 \

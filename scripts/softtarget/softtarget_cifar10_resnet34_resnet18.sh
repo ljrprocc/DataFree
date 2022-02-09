@@ -1,7 +1,7 @@
 python datafree_kd.py \
 --method softtarget \
 --dataset cifar10 \
---batch_size 100 \
+--batch_size 256 \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
@@ -9,8 +9,8 @@ python datafree_kd.py \
 --kd_steps 400 \
 --ep_steps 400 \
 --g_steps 1500 \
---lr_g 0.001 \
---act 0.1 \
+--lr_g 0.01 \
+--act 1. \
 --gpu 6 \
 --seed 0 \
 --save_dir run/softtarget \
