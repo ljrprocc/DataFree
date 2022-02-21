@@ -73,6 +73,7 @@ class ResNet(nn.Module):
         self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
         self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
+        self.num_blocks = len(num_blocks) + 1
         self.linear = nn.Linear(512*block.expansion, num_classes)
  
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -83,15 +84,27 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
  
-    def forward(self, x, return_features=False):
-        x = self.conv1(x)
-        x = self.bn1(x)
-        out = F.relu(x)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = F.adaptive_avg_pool2d(out, (1,1))
+    def forward(self, x, return_features=False, l=0):
+        if l < 1:
+            x = self.conv1(x)
+            x = self.bn1(x) # 64x32x32
+            out = F.relu(x)
+            # print(out.shape)
+            out = self.layer1(out) # 64x32x32
+            # print(out.shape)
+        else:
+            out = x
+        if l < 2:
+            out = self.layer2(out) # 128x16x16
+            # print(out.shape)
+        if l < 3:
+            out = self.layer3(out) # 256x8x8
+            # print(out.shape)
+        if l < 4:
+            out = self.layer4(out) # 512x4x4
+        # print(out.shape)
+        # exit(-1)
+        out = F.adaptive_avg_pool2d(out, (1,1)) # 512
         feature = out.view(out.size(0), -1)
         out = self.linear(feature)
 

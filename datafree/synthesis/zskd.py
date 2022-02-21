@@ -5,6 +5,7 @@ import random
 from torch.distributions import Dirichlet
 
 from .base import BaseSynthesis
+from .deepinversion import jitter_and_flip
 from datafree.utils import ImagePool, clip_images, DataIter
 
 def compute_simiarity(x, scale=1.0):
@@ -46,6 +47,7 @@ class ZSKDSynthesis(BaseSynthesis):
         self.sim_mat_big = compute_simiarity(x, 1)
         self.sim_mat_small = compute_simiarity(x, 0.1)
         self.T = T
+        
 
     def synthesize(self, targets=None):
         self.student.eval()
@@ -61,14 +63,14 @@ class ZSKDSynthesis(BaseSynthesis):
         best_inputs = inputs.data
         for c in range(self.num_classes):
 
-            sampled_label = getDirch(self.sample_batch_size, self.sim_mat_big, c, 1)
+            sampled_label = getDirch(self.sample_batch_size, self.sim_mat_small, c, 1)
             # print(sampled_label.shape)
             for i in range(self.iterations // self.num_classes):
-                
-                logit_t = self.teacher(self.normalizer(inputs))
+                inputs_aug = jitter_and_flip(inputs)
+                logit_t = self.teacher(inputs_aug)
                 # print(logit_t.shape)
                 # loss = -(F.log_softmax(logit_t / self.T, 1) * sampled_label.detach()).sum(1) / sampled_label.size(0)
-                loss = self.T ** 2 * F.kl_div(torch.log_softmax(logit_t / 20, 1), sampled_label.detach(), size_average=False) / sampled_label.size(0)
+                loss = self.T ** 2 * F.kl_div(torch.log_softmax(logit_t / self.T, 1), sampled_label.detach(), size_average=False) / sampled_label.size(0)
                 # print(loss)
                 if best_cost > loss.item():
                     best_cost = loss.item()

@@ -9,7 +9,7 @@ class Flatten(nn.Module):
     def forward(self, x):
         return torch.flatten(x, 1)
 
-class Generator(nn.Module):
+class Generator(nn.Module): # Used for tiny resnet or wider-resnet, mainly for cifar10
     def __init__(self, nz=100, ngf=64, img_size=32, nc=3):
         super(Generator, self).__init__()
 
@@ -87,36 +87,95 @@ class DCGAN_Generator(nn.Module):
 
         self.main = nn.Sequential(
             nn.BatchNorm2d(ngf*8),
-            
+            # cifar10, 1024x2x2
             nn.ConvTranspose2d(ngf*8, ngf*4, 4, 2, 1, bias=False),
             nn.BatchNorm2d(ngf*4),
             nn.LeakyReLU(slope, inplace=True),
-            # 2x
+            # 2x, 512x4x4
 
             nn.ConvTranspose2d(ngf*4, ngf*2, 4, 2, 1, bias=False),
             nn.BatchNorm2d(ngf*2),
             nn.LeakyReLU(slope, inplace=True),
-            # 4x
+            # 4x, 256x8x8
             
             nn.ConvTranspose2d(ngf*2, ngf, 4, 2, 1, bias=False),
             nn.BatchNorm2d(ngf),
             nn.LeakyReLU(slope, inplace=True),
-            # 8x
+            # 8x, 128x16x16
 
-            nn.ConvTranspose2d(ngf, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf),
+            nn.ConvTranspose2d(ngf, ngf // 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf // 2),
             nn.LeakyReLU(slope, inplace=True),
-            # 16x
+            # 16x, 64x32x32, alternate output channel from ngf to ngf // 2, to match the feature map after first layer.
 
-            nn.Conv2d(ngf, nc, 3, 1,1),
+            nn.Conv2d(ngf // 2, nc, 3, 1,1),
             nn.Sigmoid(),
             #nn.Sigmoid()
         )
 
-    def forward(self, z):
+    def forward(self, z, l=0):
         proj = self.project(z)
         proj = proj.view(proj.shape[0], -1, self.init_size[0], self.init_size[1])
-        output = self.main(proj)
+
+        if l == 0:
+            output = self.main(proj)
+        else:
+            output = self.main[:-(3*l+1)](proj)
+        return output
+
+class DCGAN_Generator_variance(nn.Module):
+    """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
+    """
+    def __init__(self, nz=100, ngf=64, nc=3, img_size=64, slope=0.2):
+        super(DCGAN_Generator, self).__init__()
+        self.nz = nz
+        if isinstance(img_size, (list, tuple)):
+            self.init_size = ( img_size[0]//16, img_size[1]//16 )
+        else:    
+            self.init_size = ( img_size // 16, img_size // 16)
+
+        self.project = nn.Sequential(
+            Flatten(),
+            nn.Linear(nz, ngf*8*self.init_size[0]*self.init_size[1]),
+        )
+
+        self.main = nn.Sequential(
+            nn.BatchNorm2d(ngf*8),
+            # cifar10, 1024x2x2
+            nn.ConvTranspose2d(ngf*8, ngf*4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf*4),
+            nn.LeakyReLU(slope, inplace=True),
+            # 2x, 512x4x4
+
+            nn.ConvTranspose2d(ngf*4, ngf*2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf*2),
+            nn.LeakyReLU(slope, inplace=True),
+            # 4x, 256x8x8
+            
+            nn.ConvTranspose2d(ngf*2, ngf, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf),
+            nn.LeakyReLU(slope, inplace=True),
+            # 8x, 128x16x16
+
+            nn.ConvTranspose2d(ngf, ngf // 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ngf // 2),
+            nn.LeakyReLU(slope, inplace=True),
+            # 16x, 64x32x32, alternate output channel from ngf to ngf // 2, to match the feature map after first layer.
+
+            nn.Conv2d(ngf // 2, nc, 3, 1,1),
+            nn.Sigmoid(),
+            #nn.Sigmoid()
+        )
+        
+
+    def forward(self, z, l=0):
+        proj = self.project(z)
+        proj = proj.view(proj.shape[0], -1, self.init_size[0], self.init_size[1])
+
+        if l == 0:
+            output = self.main(proj)
+        else:
+            output = self.main[:-(3*l+1)](proj)
         return output
 
 class DCGAN_CondGenerator(nn.Module):

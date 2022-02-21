@@ -1,5 +1,5 @@
 python datafree_kd.py \
---method zskd \
+--method probkd \
 --dataset cifar10 \
 --batch_size 256 \
 --teacher resnet34 \
@@ -8,13 +8,13 @@ python datafree_kd.py \
 --epochs 200 \
 --kd_steps 400 \
 --ep_steps 400 \
---g_steps 1000 \
---lr_g 2 \
+--g_steps 2000 \
+--lr_g 0.01 \
+--adv 1 \
 --T 10 \
---act 0 \
---balance 0 \
---gpu 6 \
+--lmda_ent 2 \
+--gpu 3 \
 --seed 0 \
---save_dir run/zskd \
---log_tag zskd \
+--save_dir run/probkd \
+--log_tag probkd \
 --data_root /data/lijingru/cifar10/

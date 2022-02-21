@@ -5,11 +5,11 @@ python datafree_kd.py \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
---epochs 200 \
+--epochs 2000 \
 --kd_steps 400 \
 --ep_steps 400 \
---g_steps 1500 \
---lr_g 0.01 \
+--g_steps 1000 \
+--lr_g 0.1 \
 --act 1. \
 --gpu 6 \
 --seed 0 \
