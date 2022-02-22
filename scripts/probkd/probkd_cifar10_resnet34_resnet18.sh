@@ -6,15 +6,17 @@ python datafree_kd.py \
 --student resnet18 \
 --lr 0.1 \
 --epochs 200 \
---kd_steps 400 \
+--kd_steps 5 \
 --ep_steps 400 \
---g_steps 2000 \
---lr_g 0.01 \
+--g_steps 1 \
+--lr_g 0.0002 \
 --adv 1 \
---T 10 \
---lmda_ent 2 \
---gpu 3 \
+--T 20 \
+--lmda_ent 20 \
+--oh 1 \
+--act 0.001 \
+--gpu 0 \
 --seed 0 \
 --save_dir run/probkd \
---log_tag probkd \
+--log_tag probkd_dcgan \
 --data_root /data/lijingru/cifar10/

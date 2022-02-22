@@ -9,7 +9,7 @@ from datafree.utils import ImagePool, DataIter, clip_images
 from datafree.criterions import jsdiv
 
 class ProbSynthesizer(BaseSynthesis):
-    def __init__(self, teacher, student, G_list, num_classes, img_size, iterations=1000, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.1):
+    def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=1, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0):
         super(ProbSynthesizer, self).__init__(teacher, student)
         self.save_dir = save_dir
         self.img_size = img_size 
@@ -27,11 +27,16 @@ class ProbSynthesizer(BaseSynthesis):
         self.G_list = G_list
         self.lmda_ent = lmda_ent
         self.adv = adv
+        self.nz = nz
+        
+        self.oh = oh
+        self.act = act
         self._get_teacher_bn()
         self.optimizers = []
         for G in G_list:
-            optimizer = torch.optim.Adam(G.parameters(), lr=self.lr_g, betas=(0.9,0.99))
+            optimizer = torch.optim.Adam(G.parameters(), lr=self.lr_g, betas=(0.5,0.999))
             self.optimizers.append(optimizer)
+            G.train()
 
         # self.hooks = []
         # for m in teacher.modules():
@@ -54,55 +59,59 @@ class ProbSynthesizer(BaseSynthesis):
             # l_ent = []
             for l, G in enumerate(self.G_list):
                 G.train()
-                z1 = torch.randn(self.synthesis_batch_size, G.nz).to(self.device)
+                self.optimizers[l].zero_grad()
+                z1 = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
                 # Rec and variance
                 mu_theta = G(z1, l=l)
                 if l > 0:
                     mu_l, var_l = self.stats[l]
                     mu_theta_mean = torch.mean(mu_theta, (2,3))
                     rec = torch.norm(mu_theta_mean - mu_l.unsqueeze(0), p=2, dim=1).mean()
-                    # l_rec.append(rec)
-                    # Entropy
-                    # generate samples:
-                    # s_l = mu_l + var_l * torch.randn_like(mu_l)
-                    # else:
-                    #     s_l = mu_theta
-                    #     rec = 0.0
-                    # Temporarily mu_theta, and constant var_theta = var_l
-                    # generate samples:
+                    
                     samples = mu_theta + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
                 else:
-                    samples = mu_theta
+                    samples = self.normalizer(mu_theta)
+                    x_input = self.normalizer(samples.detach(), reverse=True)
                     rec = 0.0
                 # print(samples.shape)
-                out_t_logit = self.teacher(samples, l=l)
-                ent = - torch.sum(torch.log_softmax(out_t_logit, 1) * torch.softmax(out_t_logit, 1), 1)
-                ent = ent.mean()
+                t_out, t_feat = self.teacher(samples, l=l, return_features=True)
+                p = F.softmax(t_out, dim=1).mean(0)
+                ent = (p*p.log()).sum()
+                loss_oh = F.cross_entropy( t_out, t_out.max(1)[1])
+                loss_act = - t_feat.abs().mean()
+                # ent = ent.mean()
                 
                 # Negative Divergence.
                 if self.adv > 0:
                     s_out = self.student(samples, l=l)
-                    loss_adv = 1.0-torch.clamp(jsdiv(s_out, out_t_logit, T=3), 0.0, 1.0)
+                    l_js = jsdiv(s_out, t_out, T=3)
+                    loss_adv = 1.0-torch.clamp(l_js, 0.0, 1.0)
+                    # if loss_adv.item() == 0.0:
+                    #     print('Warning: high js divergence between teacher and student')
+                    #     print(ent, s_out.mean(), out_t_logit.mean())
                 else:
-                    s_out = torch.zeros(1).to(self.device)
+                    loss_adv = torch.zeros(1).to(self.device)
 
-                loss = rec + self.lmda_ent * ent + self.adv * loss_adv
+                loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act
                 # if l == 2:
                 #     print(ent, loss_adv)
 
-                self.optimizers[l].zero_grad()
+                
                 loss.backward()
                 self.optimizers[l].step()
-        z = torch.randn( size=(self.synthesis_batch_size, self.G_list[0].nz)).to(self.device)
-        inputs = self.G_list[0](z)
-        return {'synthetic': inputs.detach()}
+        # z = torch.randn( size=(self.synthesis_batch_size, self.G_list[0].nz)).to(self.device)
+        # inputs = self.G_list[0](z)
+        return {'synthetic': x_input}
 
     @torch.no_grad()
     def sample(self, l=0):
-        for G in self.G_list:
-            G.eval()
-        z = torch.randn( size=(self.sample_batch_size, self.G_list[l].nz), device=self.device )
+        self.G_list[l].eval() 
+        z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
         inputs = self.G_list[l](z, l=l)
+        if l > 0:
+            _, var_l = self.stats[l]
+            # sample inputs
+            inputs = inputs + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
         return inputs
 
 

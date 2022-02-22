@@ -27,7 +27,7 @@ import torchvision.models as models
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
 # Data Free
-parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget'])
+parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'probkd'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
@@ -39,7 +39,7 @@ parser.add_argument('--logit_correction', type=str, default='mean', choices=['no
 parser.add_argument('--loss', type=str, default='l1', choices=['l1', 'kl'])
 parser.add_argument('--grad_m', type=int, default=1, help='Number of steps to approximate the gradients')
 parser.add_argument('--grad_epsilon', type=float, default=1e-3) 
-    
+parser.add_argument('--lmda_ent', default=0.1, type=float, help='Scaling factor for entropy minimization.')
 
 parser.add_argument('--forward_differences', type=int, default=1, help='Always set to 1')
 
@@ -312,6 +312,40 @@ def main_worker(gpu, ngpus_per_node, args):
                  synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,
                  save_dir=args.save_dir, transform=ori_dataset.transform,
                  normalizer=args.normalizer, device=args.gpu, a=args.act)
+
+    elif args.method == 'probkd':
+        G_list = []
+        # L = teacher.num_blocks
+        # debug
+        L = 1
+        args.g_steps *= L
+        for l in range(L):
+            nz=100
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=128, nc=3, img_size=32)
+            
+            # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
+            tg = prepare_model(tg)
+            G_list.append(tg)
+        synthesizer = datafree.synthesis.ProbSynthesizer(
+            teacher=teacher,
+            student=student,
+            G_list=G_list,
+            nz=nz,
+            num_classes=num_classes,
+            img_size=32,
+            iterations=args.g_steps,
+            lr_g=args.lr_g,
+            synthesis_batch_size=args.synthesis_batch_size,
+            sample_batch_size=args.batch_size,
+            save_dir=args.save_dir,
+            transform=ori_dataset.transform,
+            normalizer=args.normalizer,
+            device=args.gpu,
+            lmda_ent=args.lmda_ent,
+            adv=args.adv,
+            oh=args.oh,
+            act=args.act
+        )
     else: raise NotImplementedError
         
     ############################################
@@ -407,15 +441,28 @@ def train(synthesizer, model, criterion, optimizer, args):
     optimizer = optimizer
     student.train()
     teacher.eval()
+    if args.method == 'probkd':
+        L = len(synthesizer.G_list)
+    else:
+        L = 1
+
     for i in range(args.kd_steps):
-        images = synthesizer.sample()
-        if args.gpu is not None:
-            images = images.cuda(args.gpu, non_blocking=True)
-        with args.autocast():
-            with torch.no_grad():
-                t_out, t_feat = teacher(images, return_features=True)
-            s_out = student(images.detach())
-            loss_s = criterion(s_out, t_out.detach())
+        loss_s = 0.
+        for l in range(L):
+            images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
+            if l == 0:
+                images = synthesizer.normalizer(images)
+            if args.gpu is not None:
+                images = images.cuda(args.gpu, non_blocking=True)
+            with args.autocast():
+                with torch.no_grad():
+                    t_out, t_feat = teacher(images, return_features=True, l=l)
+                s_out = student(images.detach(), l=l)
+                single_loss_s = criterion(s_out, t_out.detach())
+                loss_s += single_loss_s
+
+        loss_s /= L
+
         optimizer.zero_grad()
         if args.fp16:
             scaler_s = args.scaler_s
@@ -430,7 +477,7 @@ def train(synthesizer, model, criterion, optimizer, args):
         if args.print_freq>0 and i % args.print_freq == 0:
             (train_acc1, train_acc5), train_loss = acc_metric.get_results(), loss_metric.get_results()
             args.logger.info('[Train] Epoch={current_epoch} Iter={i}/{total_iters}, train_acc@1={train_acc1:.4f}, train_acc@5={train_acc5:.4f}, train_Loss={train_loss:.4f}, Lr={lr:.4f}'
-              .format(current_epoch=args.current_epoch, i=i, total_iters=len(args.kd_steps), train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
+              .format(current_epoch=args.current_epoch, i=i, total_iters=args.kd_steps, train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
             loss_metric.reset(), acc_metric.reset()
     
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):
