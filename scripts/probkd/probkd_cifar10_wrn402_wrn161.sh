@@ -2,22 +2,22 @@ python datafree_kd.py \
 --method probkd \
 --dataset cifar10 \
 --batch_size 256 \
---teacher resnet34 \
---student resnet18 \
+--teacher wrn40_2 \
+--student wrn16_1 \
 --lr 0.1 \
 --epochs 200 \
 --kd_steps 5 \
 --ep_steps 400 \
 --g_steps 1 \
 --lr_g 0.0005 \
---adv 0 \
---depth 2 \
+--adv 1 \
+--depth 3 \
 --T 20 \
 --lmda_ent 20 \
 --oh 1 \
 --act 0.001 \
---gpu 4 \
+--gpu 0 \
 --seed 0 \
 --save_dir run/probkd \
---log_tag probkd_dcgan_no_adv2 \
---data_root /data/lijingru/cifar10/
+--log_tag probkd_adv_3 \
+--data_root /data/lijingru/cifar10/ 

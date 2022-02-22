@@ -16,8 +16,8 @@ class ProbSynthesizer(BaseSynthesis):
         self.iterations = iterations
         self.lr_g = lr_g
         self.normalizer = normalizer
-        self.data_pool = ImagePool(root=self.save_dir)
-        self.data_iter = None
+        # self.data_pool = ImagePool(root=self.save_dir)
+        # self.data_iter = None
         self.transform = transform
         self.synthesis_batch_size = synthesis_batch_size
         self.sample_batch_size = sample_batch_size
@@ -47,7 +47,13 @@ class ProbSynthesizer(BaseSynthesis):
 
     def _get_teacher_bn(self):
         # todo: more automated layer design.
-        layers = [self.teacher.bn1, self.teacher.layer1[-1].bn2, self.teacher.layer2[-1].bn2, self.teacher.layer3[-1].bn2, self.teacher.layer4[-1].bn2]
+        # ResNet type
+        if hasattr(self.teacher, 'layer1'):
+            layers = [self.teacher.bn1, self.teacher.layer1[-1].bn2, self.teacher.layer2[-1].bn2, self.teacher.layer3[-1].bn2]
+            if hasattr(self.teacher, 'layer4'):
+                layers += self.teacher.layer4[-1].bn2
+        else:
+            layers = [self.teacher.block1.layer[-1].bn2, self.teacher.block2.layer[-1].bn2, self.teacher.block3.layer[-1].bn2]
         self.stats = [(f.running_mean.data, f.running_var.data) for f in layers]
 
     def synthesize(self, targets=None):

@@ -88,10 +88,12 @@ class WideResNet(nn.Module):
             elif isinstance(m, nn.Linear):
                 m.bias.data.zero_()
 
-    def forward(self, x, return_features=False):
-        out = self.conv1(x)
-        out = self.block1(out)
-        out = self.block2(out)
+    def forward(self, x, return_features=False, l=0):
+        if l < 1:
+            out = self.conv1(x)
+            out = self.block1(out)
+        if l < 2:
+            out = self.block2(out)
         out = self.block3(out)
         out = self.relu(self.bn1(out))
         out = F.adaptive_avg_pool2d(out, (1,1))

@@ -33,6 +33,8 @@ parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN r
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
 parser.add_argument('--act', default=0, type=float, help='scaling factor for activation loss used in DAFL')
 parser.add_argument('--balance', default=0, type=float, help='scaling factor for class balance')
+parser.add_argument('--depth', default=2, type=int, help='Depth of DCGAN-type Generator.')
+parser.add_argument('--no_feature', action="store_true", help="Flag for whether use feature map distribution alignment.")
 parser.add_argument('--save_dir', default='run/synthesis', type=str)
 parser.add_argument('--no_logits', type=int, default=1)
 parser.add_argument('--logit_correction', type=str, default='mean', choices=['none', 'mean'])
@@ -316,12 +318,15 @@ def main_worker(gpu, ngpus_per_node, args):
     elif args.method == 'probkd':
         G_list = []
         # L = teacher.num_blocks
-        # debug
-        L = 1
+        # for debug
+        if args.no_feature:
+            L = 1
+        else:
+            L = (1 + args.depth)
         args.g_steps *= L
         for l in range(L):
-            nz=100
-            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=128, nc=3, img_size=32)
+            nz=512
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32)
             
             # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
             tg = prepare_model(tg)

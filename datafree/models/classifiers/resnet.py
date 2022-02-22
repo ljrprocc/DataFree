@@ -100,8 +100,8 @@ class ResNet(nn.Module):
         if l < 3:
             out = self.layer3(out) # 256x8x8
             # print(out.shape)
-        if l < 4:
-            out = self.layer4(out) # 512x4x4
+        # if l < 4:
+        out = self.layer4(out) # 512x4x4
         # print(out.shape)
         # exit(-1)
         out = F.adaptive_avg_pool2d(out, (1,1)) # 512
