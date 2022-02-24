@@ -20,4 +20,5 @@ python datafree_kd.py \
 --seed 0 \
 --save_dir run/probkd \
 --log_tag probkd_adv_3 \
---data_root /data/lijingru/cifar10/ 
+--data_root /data/lijingru/cifar10/ \
+--no_feature

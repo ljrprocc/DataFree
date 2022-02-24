@@ -133,11 +133,19 @@ class DCGAN_Generator(nn.Module):
 class DCGAN_Generator_CIFAR10(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
-    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2):
+    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal'):
         super(DCGAN_Generator_CIFAR10, self).__init__()
         self.nz = nz
         depth_factor = 2 ** d
         assert d in [2, 3]
+        assert type in ['normal', 'tiny', 'wider']
+        if type == 'normal':
+            base = [64, 128, 256, 512]
+        elif type == 'tiny':
+            base = [16, 16, 32, 64]
+        elif type == 'wider':
+            # Only support wrn40_2 as teacher.
+            base = [16, 32, 64, 128]
         if isinstance(img_size, (list, tuple)):
             self.init_size = ( img_size[0]//depth_factor, img_size[1]//depth_factor )
         else:    
@@ -149,6 +157,7 @@ class DCGAN_Generator_CIFAR10(nn.Module):
         )
         main_module = [nn.BatchNorm2d(ngf * depth_factor), nn.Upsample(scale_factor=2)]
         self.trans_convs = []
+        self.trans_logvar = []
         for i in range(d - 1):
             main_module += [
                 nn.Conv2d(ngf * depth_factor, ngf * depth_factor // 2, 3, 1, 1, bias=False),
@@ -157,7 +166,9 @@ class DCGAN_Generator_CIFAR10(nn.Module):
                 nn.Upsample(scale_factor=2)
             ]
             # Align the feature map channels with resnet.
-            self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, 64 * depth_factor, 1, 1, 0))
+            self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
+            self.trans_logvar.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
+            # self.trans_logvar.append(nn.Linear(ngf * depth_factor // 2 * (self.init_size[0] * (2**i))*(self.init_size[0] * (2**i)), base[d-1-i]))
             # self.trans_convs.append()
             depth_factor = depth_factor // 2
         main_module += [
@@ -167,43 +178,11 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             nn.Conv2d(ngf, nc, 3, 1,1),
             nn.Sigmoid(),
         ]
+        self.trans_convs.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
+        self.trans_logvar.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
         self.main = nn.Sequential(*main_module)
-        # self.main = nn.Sequential(
-        #     nn.BatchNorm2d(ngf*8),
-        #     nn.Upsample(scale_factor=2),
-        #     # nn.ConvTranspose2d(nz, ngf*8, 4, 2, 1, bias=False),
-        #     # nn.BatchNorm2d(ngf*8),
-        #     # nn.LeakyReLU(slope, inplace=True),
-            
-        #     # # cifar10, 1024x2x2
-        #     # nn.ConvTranspose2d(ngf*8, ngf*4, 4, 2, 1, bias=False),
-        #     # nn.BatchNorm2d(ngf*4),
-        #     # nn.LeakyReLU(slope, inplace=True),
-        #     # # 2x, 512x4x4
-
-        #     nn.Conv2d(ngf*8, ngf*4, 3, 1, 1, bias=False),
-        #     nn.BatchNorm2d(ngf*4),
-        #     nn.LeakyReLU(slope, inplace=True),
-        #     nn.Upsample(scale_factor=2),
-        #     # # 4x, 256x8x8
-            
-        #     nn.Conv2d(ngf*4, ngf*2, 3, 1, 1, bias=False),
-        #     nn.BatchNorm2d(ngf*2),
-        #     nn.LeakyReLU(slope, inplace=True),
-        #     nn.Upsample(scale_factor=2),
-        #     # 8x, 128x16x16
-
-        #     nn.Conv2d(ngf*2, ngf, 3, 1, 1, bias=False),
-        #     nn.BatchNorm2d(ngf),
-        #     nn.LeakyReLU(slope, inplace=True),
-        #     # nn.Upsample(scale_factor=2),
-        #     # 16x, 64x32x32, alternate output channel from ngf to ngf // 2, to match the feature map after first layer.
-
-        #     nn.Conv2d(ngf, nc, 3, 1,1),
-        #     nn.Sigmoid(),
-        #     #nn.Sigmoid()
-        # )
-        
+        self.trans_convs = nn.ModuleList(self.trans_convs)
+        self.trans_logvar = nn.ModuleList(self.trans_logvar)
 
     def forward(self, z, l=0):
         proj = self.project(z)
@@ -212,15 +191,19 @@ class DCGAN_Generator_CIFAR10(nn.Module):
 
         if l == 0:
             output = self.main(proj)
+            return output, None
         else:
-            output = self.main[:-(4*l+1)](proj)
-        return output
+            output_raw = self.main[:-(4*l - 2)](proj)
+            output = self.trans_convs[-l](output_raw)
+            logvar = self.trans_logvar[-l](output_raw)
+        return output, logvar
 
 class DCGAN_CondGenerator(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
     def __init__(self, num_classes,  nz=100, n_emb=50, ngf=64, nc=3, img_size=64, slope=0.2):
         super(DCGAN_CondGenerator, self).__init__()
+        
         self.nz = nz
         self.emb = nn.Embedding(num_classes, n_emb)
         if isinstance(img_size, (list, tuple)):

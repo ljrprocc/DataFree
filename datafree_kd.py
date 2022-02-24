@@ -42,6 +42,7 @@ parser.add_argument('--loss', type=str, default='l1', choices=['l1', 'kl'])
 parser.add_argument('--grad_m', type=int, default=1, help='Number of steps to approximate the gradients')
 parser.add_argument('--grad_epsilon', type=float, default=1e-3) 
 parser.add_argument('--lmda_ent', default=0.1, type=float, help='Scaling factor for entropy minimization.')
+parser.add_argument('--L', default=2, type=int, help='The depth for generation.')
 
 parser.add_argument('--forward_differences', type=int, default=1, help='Always set to 1')
 
@@ -326,7 +327,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.g_steps *= L
         for l in range(L):
             nz=512
-            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32)
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
             
             # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
             tg = prepare_model(tg)
@@ -424,7 +425,7 @@ def main_worker(gpu, ngpus_per_node, args):
         scheduler.step()
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
-        _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student)
+        _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
             save_checkpoint({

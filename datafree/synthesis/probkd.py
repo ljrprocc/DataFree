@@ -34,7 +34,7 @@ class ProbSynthesizer(BaseSynthesis):
         self._get_teacher_bn()
         self.optimizers = []
         for G in G_list:
-            optimizer = torch.optim.Adam(G.parameters(), lr=self.lr_g, betas=(0.5,0.999))
+            optimizer = torch.optim.Adam(G.parameters(), lr=self.lr_g, betas=(0.9,0.99))
             self.optimizers.append(optimizer)
             G.train()
 
@@ -51,10 +51,12 @@ class ProbSynthesizer(BaseSynthesis):
         if hasattr(self.teacher, 'layer1'):
             layers = [self.teacher.bn1, self.teacher.layer1[-1].bn2, self.teacher.layer2[-1].bn2, self.teacher.layer3[-1].bn2]
             if hasattr(self.teacher, 'layer4'):
-                layers += self.teacher.layer4[-1].bn2
+                # print(type(self.teacher.layer4))
+                layers.append(self.teacher.layer4[-1].bn2)
         else:
             layers = [self.teacher.block1.layer[-1].bn2, self.teacher.block2.layer[-1].bn2, self.teacher.block3.layer[-1].bn2]
         self.stats = [(f.running_mean.data, f.running_var.data) for f in layers]
+        self.bn_layers = layers
 
     def synthesize(self, targets=None):
         self.student.eval()
@@ -68,13 +70,22 @@ class ProbSynthesizer(BaseSynthesis):
                 self.optimizers[l].zero_grad()
                 z1 = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
                 # Rec and variance
-                mu_theta = G(z1, l=l)
+                mu_theta, logvar_theta = G(z1, l=l)
                 if l > 0:
                     mu_l, var_l = self.stats[l]
-                    mu_theta_mean = torch.mean(mu_theta, (2,3))
-                    rec = torch.norm(mu_theta_mean - mu_l.unsqueeze(0), p=2, dim=1).mean()
+                    mu_theta_mean = torch.mean(mu_theta, (0,2,3))
+                    nch = mu_theta_mean.size(0)
+                    var_theta = logvar_theta.exp().permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
+                    # var_theta = torch.mean(logvar_theta, (0,2,3)).exp()
                     
-                    samples = mu_theta + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
+                    logvar = var_theta.log()
+                    # print(logvar.shape, mu_theta.shape)
+                    # rec = torch.sum(-logvar / 2 + (var_theta + (mu_theta_mean - mu_l) ** 2) / (2*var_l))
+                    rec = torch.sum((mu_theta_mean - mu_l) ** 2 + (logvar - var_l) ** 2)
+                    # Generate samples from q_{\theta}
+                    # samples = mu_theta + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
+                    samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
+                    samples = torch.nn.functional.relu(samples)
                 else:
                     samples = self.normalizer(mu_theta)
                     x_input = self.normalizer(samples.detach(), reverse=True)
@@ -101,8 +112,6 @@ class ProbSynthesizer(BaseSynthesis):
                 loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act
                 # if l == 2:
                 #     print(ent, loss_adv)
-
-                
                 loss.backward()
                 self.optimizers[l].step()
         # z = torch.randn( size=(self.synthesis_batch_size, self.G_list[0].nz)).to(self.device)
@@ -113,11 +122,14 @@ class ProbSynthesizer(BaseSynthesis):
     def sample(self, l=0):
         self.G_list[l].eval() 
         z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
-        inputs = self.G_list[l](z, l=l)
+        inputs, logvar_theta = self.G_list[l](z, l=l)
         if l > 0:
             _, var_l = self.stats[l]
             # sample inputs
-            inputs = inputs + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
+            # inputs = inputs + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
+            inputs = inputs + (logvar_theta / 2).exp() * torch.randn_like(inputs)
+            # Activation at the last block
+            inputs = torch.nn.functional.relu(inputs)
         return inputs
 
 

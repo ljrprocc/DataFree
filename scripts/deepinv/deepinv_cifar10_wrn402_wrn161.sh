@@ -16,8 +16,8 @@ python datafree_kd.py \
 --T 20 \
 --act 0 \
 --balance 0 \
---gpu 6 \
+--gpu 0 \
 --seed 0 \
 --save_dir run/deepinv \
 --log_tag deepinv \
---data_root /data/lijingru/cifar10/
+--data_root /data/lijingru/cifar10/ \
