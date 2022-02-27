@@ -71,20 +71,28 @@ class ProbSynthesizer(BaseSynthesis):
                 z1 = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
                 # Rec and variance
                 mu_theta, logvar_theta = G(z1, l=l)
+                # mu_theta = G(z1, l=l)
                 if l > 0:
                     mu_l, var_l = self.stats[l]
-                    mu_theta_mean = torch.mean(mu_theta, (0,2,3))
-                    nch = mu_theta_mean.size(0)
-                    var_theta = logvar_theta.exp().permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
+                    samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
+                    # mu_theta_mean = torch.mean(mu_theta, (0,2,3))
+                    sample_mean = torch.mean(samples, (0,2,3))
+                    nch = sample_mean.size(0)
+                    sample_var = samples.permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
                     # var_theta = torch.mean(logvar_theta, (0,2,3)).exp()
                     
-                    logvar = var_theta.log()
+                    # logvar = var_theta.log()
                     # print(logvar.shape, mu_theta.shape)
-                    # rec = torch.sum(-logvar / 2 + (var_theta + (mu_theta_mean - mu_l) ** 2) / (2*var_l))
-                    rec = torch.sum((mu_theta_mean - mu_l) ** 2 + (logvar - var_l) ** 2)
+                    ## Directly calculate KL divergence, treat statistics as normal distribution.
+                    # rec = torch.norm(mu_theta_mean - mu_l, p=2, dim=1).mean()
+                    #rec = torch.sum(-sample_var.log() / 2 + (sample_var + (sample_mean - mu_l) ** 2) / (2*var_l))
+                    # rec = torch.sum((mu_theta_mean - mu_l) ** 2 + (var_theta - var_l) ** 2)
+                    ## var alignment by l2-norm
+                    rec = torch.norm(sample_mean - mu_l, p=2) + torch.norm(sample_var - var_l, p=2)
                     # Generate samples from q_{\theta}
-                    # samples = mu_theta + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
-                    samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
+                    # samples = mu_theta + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
+                    # samples = mu_theta
+                    # samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
                     samples = torch.nn.functional.relu(samples)
                 else:
                     samples = self.normalizer(mu_theta)
@@ -123,10 +131,11 @@ class ProbSynthesizer(BaseSynthesis):
         self.G_list[l].eval() 
         z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
         inputs, logvar_theta = self.G_list[l](z, l=l)
+        # inputs = self.G_list[l](z, l=l)
         if l > 0:
             _, var_l = self.stats[l]
             # sample inputs
-            # inputs = inputs + var_l.unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
+            # inputs = inputs + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
             inputs = inputs + (logvar_theta / 2).exp() * torch.randn_like(inputs)
             # Activation at the last block
             inputs = torch.nn.functional.relu(inputs)

@@ -8,6 +8,7 @@ import warnings
 
 import registry
 import datafree
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -415,7 +416,10 @@ def main_worker(gpu, ngpus_per_node, args):
             train( synthesizer, [student, teacher], criterion, optimizer, args) # # kd_steps
         
         for vis_name, vis_image in vis_results.items():
-            datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
+            if vis_image.shape[1] == 3:
+                datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
+            else:
+                np.savez()
         
         student.eval()
         eval_results = evaluator(student, device=args.gpu)
@@ -428,14 +432,18 @@ def main_worker(gpu, ngpus_per_node, args):
         _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0):
-            save_checkpoint({
+            save_dict = {
                 'epoch': epoch + 1,
                 'arch': args.student,
                 'state_dict': student.state_dict(),
                 'best_acc1': float(best_acc1),
                 'optimizer' : optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
-            }, is_best, _best_ckpt)
+            }
+            if args.method == 'probkd':
+                for l in range(L):
+                    save_dict['G_{}'.format(l)] = G_list[l].state_dict()
+            save_checkpoint(save_dict, is_best, _best_ckpt)
     if args.rank<=0:
         args.logger.info("Best: %.4f"%best_acc1)
 

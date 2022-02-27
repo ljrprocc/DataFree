@@ -197,6 +197,7 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             output = self.trans_convs[-l](output_raw)
             logvar = self.trans_logvar[-l](output_raw)
         return output, logvar
+        # return output
 
 class DCGAN_CondGenerator(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434

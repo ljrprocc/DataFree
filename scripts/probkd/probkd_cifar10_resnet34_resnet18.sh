@@ -5,7 +5,7 @@ python datafree_kd.py \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
---epochs 200 \
+--epochs 250 \
 --kd_steps 5 \
 --ep_steps 400 \
 --g_steps 1 \
@@ -19,5 +19,6 @@ python datafree_kd.py \
 --gpu 2 \
 --seed 0 \
 --save_dir run/probkd \
---log_tag probkd_dcgan_L2_adv_var_l2 \
+--log_tag probkd_L2_reinter_var_align \
 --data_root /data/lijingru/cifar10/
+# --resume /data/lijingru/DataFree/checkpoints/datafree-probkd/cifar10-resnet34-resnet18--probkd_dcgan_L2_adv_testrelu2.pth
