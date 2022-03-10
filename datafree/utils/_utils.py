@@ -401,3 +401,13 @@ def dummy_ctx(*args, **kwds):
         yield None
     finally:
         pass
+
+def copy_state_dict(G1, G2, l):
+    '''
+    G1: l - 1 th generator.
+    G2: l th generator.
+    copy l th generator's lower parameters to (l-1)-th generator.
+    '''
+    G1.project.load_state_dict(G2.project.state_dict())
+    G1.main[:-(4*l-2)].load_state_dict(G2.main[:-(4*l-2)].state_dict())
+    G1.trans_convs[-l].load_state_dict(G2.trans_convs[-l].state_dict())

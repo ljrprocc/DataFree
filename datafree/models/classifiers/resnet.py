@@ -84,24 +84,40 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
  
-    def forward(self, x, return_features=False, l=0):
+    def forward(self, x, return_features=False, l=0, get_map=False):
+        if get_map:
+            gl = l
+            l = 0
         if l < 1:
             x = self.conv1(x)
             x = self.bn1(x) # 64x32x32
             out = F.relu(x)
+            f1 = out
             # print(out.shape)
-            out = self.layer1(out) # 64x32x32
+            out = self.layer1(out)
+            f2 = out # 64x32x32
+            if get_map and gl == 1:
+                return f2
             # print(out.shape)
         else:
             out = x
         if l < 2:
-            out = self.layer2(out) # 128x16x16
+            out = self.layer2(out)
+            f3 = out # 128x16x16
+            if get_map and gl == 2:
+                return f3
             # print(out.shape)
         if l < 3:
-            out = self.layer3(out) # 256x8x8
+            out = self.layer3(out)
+            f4 = out # 256x8x8
+            if get_map and gl == 3:
+                return f4
+            
             # print(out.shape)
         # if l < 4:
-        out = self.layer4(out) # 512x4x4
+        out = self.layer4(out)
+        f5 = out # 512x4x4
+        
         # print(out.shape)
         # exit(-1)
         out = F.adaptive_avg_pool2d(out, (1,1)) # 512

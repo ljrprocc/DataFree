@@ -33,9 +33,11 @@ parser.add_argument('--adv', default=0, type=float, help='scaling factor for adv
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
 parser.add_argument('--act', default=0, type=float, help='scaling factor for activation loss used in DAFL')
+parser.add_argument('--l1', default=0.01, type=float, help='scaling factor for l1-alignment at teacher space.')
 parser.add_argument('--balance', default=0, type=float, help='scaling factor for class balance')
 parser.add_argument('--depth', default=2, type=int, help='Depth of DCGAN-type Generator.')
 parser.add_argument('--no_feature', action="store_true", help="Flag for whether use feature map distribution alignment.")
+parser.add_argument('--only_feature', action="store_true", help="Flag for whether use only last feature map distribution alignment.")
 parser.add_argument('--save_dir', default='run/synthesis', type=str)
 parser.add_argument('--no_logits', type=int, default=1)
 parser.add_argument('--logit_correction', type=str, default='mean', choices=['none', 'mean'])
@@ -89,6 +91,8 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
                     help='mini-batch size (default: None) for synthesis, this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
+
+parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
 
 # Device
 parser.add_argument('--gpu', default=0, type=int,
@@ -209,6 +213,8 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
     evaluator = datafree.evaluators.classification_evaluator(val_loader)
+    if args.log_y_kl:
+        ykl_evaluator = datafree.evaluators.ykl_classification_evaluator(val_loader, L=args.depth+1)
 
     ############################################
     # Setup models
@@ -305,7 +311,7 @@ def main_worker(gpu, ngpus_per_node, args):
         nz = 256
         generator = datafree.models.generator.Generator(nz=nz, ngf=64, img_size=32, nc=3)
         generator = prepare_model(generator)
-        criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv()
+        criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv(T=args.T)
         synthesizer = datafree.synthesis.DFMESynthesizer(
             teacher=teacher, student=student, generator=generator, nz=nz, img_size=(3, 32, 32), iterations=args.g_steps, lr_g=args.lr_g, synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size,normalizer=args.normalizer, device=args.gpu, logit_correction=args.logit_correction, no_logit=args.no_logits, grad_epsilon=args.grad_epsilon, grad_m=args.grad_m,loss=args.loss
         )
@@ -319,20 +325,30 @@ def main_worker(gpu, ngpus_per_node, args):
 
     elif args.method == 'probkd':
         G_list = []
+        E_list = []
         # L = teacher.num_blocks
         # for debug
+        criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv(T=args.T)
+        t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
             L = 1
         else:
             L = (1 + args.depth)
-        args.g_steps *= L
+        if args.only_feature:
+            args.start_l = args.depth
+        else:
+            args.start_l = 0
+            args.g_steps *= L
         for l in range(L):
             nz=512
             tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
+            E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
+            E = prepare_model(E)
             
             # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
             tg = prepare_model(tg)
             G_list.append(tg)
+            E_list.append(E)
         synthesizer = datafree.synthesis.ProbSynthesizer(
             teacher=teacher,
             student=student,
@@ -351,7 +367,10 @@ def main_worker(gpu, ngpus_per_node, args):
             lmda_ent=args.lmda_ent,
             adv=args.adv,
             oh=args.oh,
-            act=args.act
+            act=args.act,
+            only_feature=args.only_feature,
+            E_list=E_list,
+            l1=args.l1
         )
     else: raise NotImplementedError
         
@@ -422,12 +441,30 @@ def main_worker(gpu, ngpus_per_node, args):
                 np.savez()
         
         student.eval()
-        eval_results = evaluator(student, device=args.gpu)
+        if args.log_y_kl:
+            eval_results = evaluator(student, device=args.gpu)
+            ykl_eval_results = ykl_evaluator(teacher, device=args.gpu, G_list=G_list, normalizer=normalizer)
+
+        else:
+            eval_results = evaluator(student, device=args.gpu)
         (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
+            
         args.logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
                 .format(current_epoch=args.current_epoch, acc1=acc1, acc5=acc5, loss=val_loss, lr=optimizer.param_groups[0]['lr']))
+        if args.log_y_kl:
+            info = '[Eval] Epoch={current_epoch}'.format(current_epoch=args.current_epoch)
+            for l in range(1):
+                kl_div = ykl_eval_results['y_kl']['kl_at_{}'.format(l)]
+                info += ' KL@y{l}={KLy:.5f}'.format(l=l, KLy=kl_div)
+            args.logger.info(info)
         scheduler.step()
         is_best = acc1 > best_acc1
+        # if is_best:
+        #     for l in range(1, L):
+        #         # args.logger.info('Copying')
+        #         Gl = G_list[l]
+        #         Gl_1 = G_list[l-1]
+        #         datafree.utils.copy_state_dict(G1=Gl_1, G2=Gl, l=l)
         best_acc1 = max(acc1, best_acc1)
         _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
@@ -441,6 +478,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'scheduler': scheduler.state_dict(),
             }
             if args.method == 'probkd':
+                # save_dict['G'] = tg.state_dict()
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
             save_checkpoint(save_dict, is_best, _best_ckpt)
@@ -456,13 +494,16 @@ def train(synthesizer, model, criterion, optimizer, args):
     student.train()
     teacher.eval()
     if args.method == 'probkd':
-        L = len(synthesizer.G_list)
+        L = synthesizer.L
     else:
         L = 1
-
+    if args.method == 'probkd' and args.only_feature:
+        start = args.depth
+    else:
+        start = 0
     for i in range(args.kd_steps):
-        loss_s = 0.
-        for l in range(L):
+        losses = []
+        for l in range(start, L):
             images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
             if l == 0:
                 images = synthesizer.normalizer(images)
@@ -472,10 +513,11 @@ def train(synthesizer, model, criterion, optimizer, args):
                 with torch.no_grad():
                     t_out, t_feat = teacher(images, return_features=True, l=l)
                 s_out = student(images.detach(), l=l)
-                single_loss_s = criterion(s_out, t_out.detach())
-                loss_s += single_loss_s
+                loss_s = criterion(s_out, t_out.detach())
+                losses.append(loss_s)
+                # loss_s += single_loss_s
 
-        loss_s /= L
+        loss_s = sum(losses) / len(losses)
 
         optimizer.zero_grad()
         if args.fp16:

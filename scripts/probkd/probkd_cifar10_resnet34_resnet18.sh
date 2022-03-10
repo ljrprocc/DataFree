@@ -9,16 +9,18 @@ python datafree_kd.py \
 --kd_steps 5 \
 --ep_steps 400 \
 --g_steps 1 \
---lr_g 0.0002 \
+--lr_g 0.0005 \
 --adv 1 \
 --depth 2 \
 --T 20 \
 --lmda_ent 20 \
 --oh 1 \
 --act 0.001 \
---gpu 2 \
+--gpu 4 \
 --seed 0 \
 --save_dir run/probkd \
---log_tag probkd_L2_reinter_var_align \
---data_root /data/lijingru/cifar10/
+--l1 0. \
+--log_tag probkd_L2_line26 \
+--data_root /data/lijingru/cifar10/ \
+--loss kl
 # --resume /data/lijingru/DataFree/checkpoints/datafree-probkd/cifar10-resnet34-resnet18--probkd_dcgan_L2_adv_testrelu2.pth
