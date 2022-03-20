@@ -82,6 +82,7 @@ class DCGAN_Generator(nn.Module):
     def __init__(self, nz=100, ngf=64, nc=3, img_size=64, slope=0.2):
         super(DCGAN_Generator, self).__init__()
         self.nz = nz
+        
         if isinstance(img_size, (list, tuple)):
             self.init_size = ( img_size[0]//16, img_size[1]//16 )
         else:    
@@ -133,10 +134,15 @@ class DCGAN_Generator(nn.Module):
 class DCGAN_Generator_CIFAR10(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
-    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal'):
+    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', cond=False, n_emb=50):
         super(DCGAN_Generator_CIFAR10, self).__init__()
         self.nz = nz
         depth_factor = 2 ** d
+        self.cond = cond
+        if cond:
+            self.emb = nn.Embedding(10, n_emb)
+        else:
+            n_emb = 0
         assert d in [2, 3]
         assert type in ['normal', 'tiny', 'wider']
         if type == 'normal':
@@ -153,11 +159,11 @@ class DCGAN_Generator_CIFAR10(nn.Module):
 
         self.project = nn.Sequential(
             Flatten(),
-            nn.Linear(nz, ngf*depth_factor*self.init_size[0]*self.init_size[1]),
+            nn.Linear(nz+n_emb, ngf*depth_factor*self.init_size[0]*self.init_size[1]),
         )
         main_module = [nn.BatchNorm2d(ngf * depth_factor), nn.Upsample(scale_factor=2)]
         self.trans_convs = []
-        # self.trans_ori_feat = []
+        self.trans_logvar = []
         for i in range(d - 1):
             main_module += [
                 nn.Conv2d(ngf * depth_factor, ngf * depth_factor // 2, 3, 1, 1, bias=False),
@@ -166,14 +172,14 @@ class DCGAN_Generator_CIFAR10(nn.Module):
                 nn.Upsample(scale_factor=2)
             ]
             # Align the feature map channels with resnet.
-            # self.trans_convs.append(
-            #     nn.Sequential(
-            #         nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0, bias=False),
-            #         # nn.BatchNorm2d(base[d-1-i])
-            #     )
-            # )
+            # self.trans_convs.append(nn.Sequential(
+            #     nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 3, 1, 1, bias=False),
+            #     nn.BatchNorm2d(base[d-1-i]),
+            #     nn.LeakyReLU(slope),
+            #     nn.Conv2d(base[d-1-i], base[d-1-i],3, 1, 1)
+            # ))
             self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
-            # self.trans_ori_feat.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
+            # self.trans_logvar.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
             # self.trans_logvar.append(nn.Linear(ngf * depth_factor // 2 * (self.init_size[0] * (2**i))*(self.init_size[0] * (2**i)), base[d-1-i]))
             # self.trans_convs.append()
             depth_factor = depth_factor // 2
@@ -184,40 +190,49 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             nn.Conv2d(ngf, nc, 3, 1,1),
             nn.Sigmoid(),
         ]
-        # self.trans_convs.append(
-        #     nn.Sequential(
-        #         nn.Conv2d(ngf, base[0], 1, 1, 0, bias=False),
-        #         # nn.BatchNorm2d(base[0])
-        #     )
-        # )
+        # self.trans_convs.append(nn.Sequential(
+        #     nn.Conv2d(ngf, base[0], 3, 1, 1, bias=False),
+        #     nn.BatchNorm2d(base[0]),
+        #     nn.LeakyReLU(slope),
+        #     nn.Conv2d(base[0], base[0],3, 1, 1)
+        # ))
         self.trans_convs.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
-        # self.trans_ori_feat.append(nn.Conv2d(ngf, base[0], 3, 1, 1))
+        # self.trans_logvar.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
         self.main = nn.Sequential(*main_module)
         self.trans_convs = nn.ModuleList(self.trans_convs)
-        # self.trans_ori_feat = nn.ModuleList(self.trans_ori_feat)
+        # self.trans_logvar = nn.ModuleList(self.trans_logvar)
 
-    def forward(self, z, l=0):
+    def forward(self, z, l=0, y=None):
+        if self.cond:
+            assert y is not None
+            y = self.emb(y)
+            z = torch.cat([z, y], dim=1)
         proj = self.project(z)
         proj = proj.view(proj.shape[0], -1, self.init_size[0], self.init_size[1])
         # proj = z.unsqueeze(-1).unsqueeze(-1)
 
         if l == 0:
             output = self.main(proj)
+            # return output, None
             return output
         else:
-            output_raw = self.main[:-(4*l - 1)](proj)
+            output_raw = self.main[:-(4*l - 2)](proj)
             output = self.trans_convs[-l](output_raw)
-            # output_t = self.trans_ori_feat[-l](output_raw)
-            # output_t = F.relu(output_t)
-
-        return output
+            # logvar = self.trans_logvar[-l](output_raw)
+            return output
+        # return output, logvar
 
 class DCGAN_Generator_CIFAR10_more(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
-    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal'):
+    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', n_emb=50):
         super(DCGAN_Generator_CIFAR10_more, self).__init__()
         self.nz = nz
+        self.cond = cond
+        if cond:
+            self.emb = nn.Embedding(num_classes, n_emb)
+        else:
+            n_emb = 0
         depth_factor = 2 ** d
         assert d in [2, 3]
         assert type in ['normal', 'tiny', 'wider']
@@ -235,7 +250,7 @@ class DCGAN_Generator_CIFAR10_more(nn.Module):
 
         self.project = nn.Sequential(
             Flatten(),
-            nn.Linear(nz, ngf*depth_factor*self.init_size[0]*self.init_size[1]),
+            nn.Linear(nz+n_emb, ngf*depth_factor*self.init_size[0]*self.init_size[1]),
         )
         main_module = [nn.BatchNorm2d(ngf * depth_factor), nn.Upsample(scale_factor=2)]
         self.trans_convs = []
@@ -284,10 +299,11 @@ class DCGAN_Generator_CIFAR10_more(nn.Module):
         # return output
 
 class VAE_Encoder_CIFAR10(nn.Module):
-    def __init__(self, ngf=64, nc=3, img_size=32, slope=0.2, d=2, type='normal', nz=512):
+    def __init__(self, ngf=64, nc=3, img_size=32, slope=0.2, d=2, type='normal', nz=512, cond=False):
         super(VAE_Encoder_CIFAR10, self).__init__()
         depth_factor = 2 ** d
         self.nz = nz
+        
         assert d in [2, 3]
         assert type in ['normal', 'tiny', 'wider']
         if type == 'normal':

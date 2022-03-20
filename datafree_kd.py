@@ -30,6 +30,8 @@ parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 # Data Free
 parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'probkd'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
+parser.add_argument('--adv_type',choices=['js', 'kl'], default='js', help='Adversirial training for which divergence.')
+parser.add_argument('--cond', action="store_true", help='using class-conditional generation strategy.')
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
 parser.add_argument('--act', default=0, type=float, help='scaling factor for activation loss used in DAFL')
@@ -325,11 +327,11 @@ def main_worker(gpu, ngpus_per_node, args):
 
     elif args.method == 'probkd':
         G_list = []
-        E_list = []
+        # E_list = []
         # L = teacher.num_blocks
         # for debug
         criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv(T=args.T)
-        t_criterion = datafree.criterions.KLDiv(T=args.T)
+        # t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
             L = 1
         else:
@@ -341,14 +343,14 @@ def main_worker(gpu, ngpus_per_node, args):
             args.g_steps *= L
         for l in range(L):
             nz=512
-            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
-            E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
-            E = prepare_model(E)
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth, cond=args.cond)
+            # E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
+            # E = prepare_model(E)
             
             # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
             tg = prepare_model(tg)
             G_list.append(tg)
-            E_list.append(E)
+            # E_list.append(E)
         synthesizer = datafree.synthesis.ProbSynthesizer(
             teacher=teacher,
             student=student,
@@ -368,9 +370,7 @@ def main_worker(gpu, ngpus_per_node, args):
             adv=args.adv,
             oh=args.oh,
             act=args.act,
-            only_feature=args.only_feature,
-            E_list=E_list,
-            l1=args.l1
+            adv_type=args.adv_type
         )
     else: raise NotImplementedError
         
@@ -378,9 +378,9 @@ def main_worker(gpu, ngpus_per_node, args):
     # Setup optimizer
     ############################################
     optimizer = torch.optim.SGD(student.parameters(), args.lr, weight_decay=args.weight_decay, momentum=0.9)
-    #milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
-    #scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=args.epochs)
+    milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=args.epochs)
 
     ############################################
     # Resume
@@ -494,7 +494,7 @@ def train(synthesizer, model, criterion, optimizer, args):
     student.train()
     teacher.eval()
     if args.method == 'probkd':
-        L = synthesizer.L
+        L = len(synthesizer.G_list)
     else:
         L = 1
     if args.method == 'probkd' and args.only_feature:
@@ -502,7 +502,7 @@ def train(synthesizer, model, criterion, optimizer, args):
     else:
         start = 0
     for i in range(args.kd_steps):
-        losses = []
+        loss_s = 0.0
         for l in range(start, L):
             images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
             if l == 0:
@@ -513,11 +513,11 @@ def train(synthesizer, model, criterion, optimizer, args):
                 with torch.no_grad():
                     t_out, t_feat = teacher(images, return_features=True, l=l)
                 s_out = student(images.detach(), l=l)
-                loss_s = criterion(s_out, t_out.detach())
-                losses.append(loss_s)
-                # loss_s += single_loss_s
+                single_loss_s = criterion(s_out, t_out.detach())
+                
+                loss_s += single_loss_s
 
-        loss_s = sum(losses) / len(losses)
+        loss_s /= L
 
         optimizer.zero_grad()
         if args.fp16:

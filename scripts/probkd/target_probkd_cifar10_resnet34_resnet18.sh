@@ -1,0 +1,27 @@
+python datafree_kd.py \
+--method probkd \
+--dataset cifar10 \
+--batch_size 256 \
+--teacher resnet34 \
+--student resnet18 \
+--lr 0.1 \
+--epochs 80 \
+--lr_decay_milestones 25,30,35 \
+--kd_steps 1500 \
+--ep_steps 1500 \
+--g_steps 200 \
+--lr_g 0.0005 \
+--adv 0.5 \
+--depth 2 \
+--T 20 \
+--lmda_ent 0 \
+--oh 0.5 \
+--act 0.0 \
+--gpu 1 \
+--seed 0 \
+--save_dir run/probkd \
+--log_tag probkd_L2_line32_new \
+--data_root /data/lijingru/cifar10/ \
+--adv_type kl \
+--print_freq 100 \
+--loss kl
