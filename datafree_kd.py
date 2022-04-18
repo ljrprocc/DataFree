@@ -43,7 +43,7 @@ parser.add_argument('--only_feature', action="store_true", help="Flag for whethe
 parser.add_argument('--save_dir', default='run/synthesis', type=str)
 parser.add_argument('--no_logits', type=int, default=1)
 parser.add_argument('--logit_correction', type=str, default='mean', choices=['none', 'mean'])
-parser.add_argument('--loss', type=str, default='l1', choices=['l1', 'kl'])
+parser.add_argument('--loss', type=str, default='l1', choices=['l1', 'kl', 'l2'])
 parser.add_argument('--grad_m', type=int, default=1, help='Number of steps to approximate the gradients')
 parser.add_argument('--grad_epsilon', type=float, default=1e-3) 
 parser.add_argument('--lmda_ent', default=0.1, type=float, help='Scaling factor for entropy minimization.')
@@ -74,8 +74,10 @@ parser.add_argument('--epochs', default=200, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--g_steps', default=1, type=int, metavar='N',
                     help='number of iterations for generation')
+parser.add_argument('--g_steps_interval', default='2,1,1', type=str, help='number of iterations for generaton at each level of feature map distribution.')
 parser.add_argument('--kd_steps', default=400, type=int, metavar='N',
                     help='number of iterations for KD after generation')
+parser.add_argument('--kd_steps_interval', type=str, default='400,200,100', help='number of iterations for KD after generaton for each level of feature map.')
 parser.add_argument('--ep_steps', default=400, type=int, metavar='N',
                     help='number of total iterations in each epoch')
 
@@ -330,7 +332,17 @@ def main_worker(gpu, ngpus_per_node, args):
         # E_list = []
         # L = teacher.num_blocks
         # for debug
-        criterion = torch.nn.L1Loss() if args.loss=='l1' else datafree.criterions.KLDiv(T=args.T)
+        kd_steps = args.kd_steps_interval.split(',')
+        kd_steps = [int(x) for x in kd_steps]
+        g_steps = args.g_steps_interval.split(',')
+        g_steps = [int(x) for x in g_steps]
+        
+        if args.loss == 'l1':
+            criterion = torch.nn.L1Loss()
+        elif args.loss == 'l2':
+            criterion = torch.nn.MSELoss()
+        else:
+            criterion = datafree.criterions.KLDiv(T=args.T)
         # t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
             L = 1
@@ -341,9 +353,16 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             args.start_l = 0
             args.g_steps *= L
+        assert args.no_feature or len(kd_steps) == L, 'gdynb'
         for l in range(L):
             nz=512
-            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth, cond=args.cond)
+            widen_factor = 1
+            if args.teacher.startswith('wrn'):
+                type = 'wider'
+                widen_factor = int(args.teacher.split('_')[-1])
+            else:
+                type = 'normal'
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth, cond=args.cond, type=type, widen_factor=widen_factor)
             # E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
             # E = prepare_model(E)
             
@@ -358,7 +377,7 @@ def main_worker(gpu, ngpus_per_node, args):
             nz=nz,
             num_classes=num_classes,
             img_size=32,
-            iterations=args.g_steps,
+            iterations=g_steps,
             lr_g=args.lr_g,
             synthesis_batch_size=args.synthesis_batch_size,
             sample_batch_size=args.batch_size,
@@ -370,17 +389,31 @@ def main_worker(gpu, ngpus_per_node, args):
             adv=args.adv,
             oh=args.oh,
             act=args.act,
-            adv_type=args.adv_type
+            adv_type=args.adv_type,
+            bn=args.bn,
+            T=args.T
         )
     else: raise NotImplementedError
         
     ############################################
     # Setup optimizer
     ############################################
-    optimizer = torch.optim.SGD(student.parameters(), args.lr, weight_decay=args.weight_decay, momentum=0.9)
-    milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
-    scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=args.epochs)
+    # layers = [student, student.layer2, student.layer3, student.layer4, student.linear]
+    optimizers = []
+    
+    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, student.parameters()), args.lr, weight_decay=args.weight_decay, momentum=0.9)
+    optimizers.append(optimizer)
+    # for l in range(1, L):
+    #     layer_para = []
+    #     for layer in layers[l:]:
+    #         layer_para += list(layer.parameters())
+    #     optimizer = torch.optim.SGD(layer_para, args.lr, weight_decay=args.weight_decay, momentum=0.9)
+    #     optimizers.append(optimizer)
+
+    # milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=args.epochs)
+    
 
     ############################################
     # Resume
@@ -427,18 +460,23 @@ def main_worker(gpu, ngpus_per_node, args):
         #    train_sampler.set_epoch(epoch)
         args.current_epoch=epoch
 
-        for _ in range( args.ep_steps//args.kd_steps ): # total kd_steps < ep_steps
+        # for _ in range( args.ep_steps//args.kd_steps ): # total kd_steps < ep_steps
+        for _ in range( args.ep_steps//kd_steps[0] ):
             # two-stage
             # 1. Data synthesis
-            vis_results = synthesizer.synthesize() # g_steps
-            # 2. Knowledge distillation
-            train( synthesizer, [student, teacher], criterion, optimizer, args) # # kd_steps
-        
-        for vis_name, vis_image in vis_results.items():
+            vis_result = None
+            for l in range(L):
+                vis_results = synthesizer.synthesize(l=l) # g_steps
+                # 2. Knowledge distillation
+                # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'probkd' and (not args.no_feature) else [args.kd_steps]) # # 
+                # kd_steps
+                train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l)
+                if l == 0:
+                    vis_result = vis_results
+
+        for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
                 datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
-            else:
-                np.savez()
         
         student.eval()
         if args.log_y_kl:
@@ -486,39 +524,50 @@ def main_worker(gpu, ngpus_per_node, args):
         args.logger.info("Best: %.4f"%best_acc1)
 
 
-def train(synthesizer, model, criterion, optimizer, args):
+def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0):
     loss_metric = datafree.metrics.RunningLoss(datafree.criterions.KLDiv(reduction='sum'))
     acc_metric = datafree.metrics.TopkAccuracy(topk=(1,5))
     student, teacher = model
     optimizer = optimizer
     student.train()
     teacher.eval()
-    if args.method == 'probkd':
-        L = len(synthesizer.G_list)
-    else:
-        L = 1
-    if args.method == 'probkd' and args.only_feature:
-        start = args.depth
-    else:
-        start = 0
-    for i in range(args.kd_steps):
+    # if args.method == 'probkd':
+    #     L = len(synthesizer.G_list)
+    # else:
+    #     L = 1
+    # if args.method == 'probkd' and args.only_feature:
+    #     start = args.depth
+    # else:
+    #     start = 0
+    # datafree.utils.set_requires_grad(student, True)
+    # for l, kd_step in enumerate(kd_steps):
+        # if l == 1:
+        #     datafree.utils.set_requires_grad(student.conv1, False)
+        #     datafree.utils.set_requires_grad(student.bn1, False)
+        #     datafree.utils.set_requires_grad(student.layer1, False)
+        # if l == 2:
+        #     datafree.utils.set_requires_grad(student.layer2, False)
+    for i in range(kd_step):
         loss_s = 0.0
-        for l in range(start, L):
-            images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
-            if l == 0:
-                images = synthesizer.normalizer(images)
-            if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
-            with args.autocast():
-                with torch.no_grad():
-                    t_out, t_feat = teacher(images, return_features=True, l=l)
-                s_out = student(images.detach(), l=l)
-                single_loss_s = criterion(s_out, t_out.detach())
+        # datafree.utils.set_requires_grad(student, True)                   
+        # for l in range(start, L):
+        images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
+        if l == 0:
+            images = synthesizer.normalizer(images)
+            
+        if args.gpu is not None:
+            images = images.cuda(args.gpu, non_blocking=True)
+        with args.autocast():
+            with torch.no_grad():
+                t_out, t_feat = teacher(images, return_features=True, l=l)
+            s_out = student(images.detach(), l=l)
+            loss_s = criterion(s_out, t_out.detach())
+                # single_loss_s = criterion(s_out, t_out.detach())
                 
-                loss_s += single_loss_s
+                # loss_s += single_loss_s
 
-        loss_s /= L
-
+        # loss_s /= L
+            
         optimizer.zero_grad()
         if args.fp16:
             scaler_s = args.scaler_s
@@ -533,7 +582,7 @@ def train(synthesizer, model, criterion, optimizer, args):
         if args.print_freq>0 and i % args.print_freq == 0:
             (train_acc1, train_acc5), train_loss = acc_metric.get_results(), loss_metric.get_results()
             args.logger.info('[Train] Epoch={current_epoch} Iter={i}/{total_iters}, train_acc@1={train_acc1:.4f}, train_acc@5={train_acc5:.4f}, train_Loss={train_loss:.4f}, Lr={lr:.4f}'
-              .format(current_epoch=args.current_epoch, i=i, total_iters=args.kd_steps, train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
+            .format(current_epoch=args.current_epoch, i=i, total_iters=kd_step, train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
             loss_metric.reset(), acc_metric.reset()
     
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):

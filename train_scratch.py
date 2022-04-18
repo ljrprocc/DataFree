@@ -279,9 +279,9 @@ def train(train_loader, model, criterion, optimizer, args):
             images = images.cuda(args.gpu, non_blocking=True)
         if torch.cuda.is_available():
             target = target.cuda(args.gpu, non_blocking=True)
-        with args.autocast(enabled=args.fp16):
-            output = model(images)
-            loss = criterion(output, target)
+        # with args.autocast(enabled=args.fp16):
+        output = model(images)
+        loss = criterion(output, target)
         # measure accuracy and record loss
         acc_metric.update(output, target)
         loss_metric.update(output, target)

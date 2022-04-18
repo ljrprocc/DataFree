@@ -6,6 +6,7 @@ import os, random, math
 from copy import deepcopy
 from contextlib import contextmanager
 import torch.nn.functional as F
+import torch.distributed as dist
 
 def estimate_gradient_objective(victim_model, clone_model, x, epsilon = 1e-7, m = 5, verb=False, num_classes=10, device = "cpu", pre_x=False, forward_differences=True, no_logits=1, loss='l1', logit_correction='mean'):
     # Sampling from unit sphere is the method 3 from this website:
@@ -157,6 +158,32 @@ def get_pseudo_label(n_or_label, num_classes, device, onehot=False):
         label = torch.zeros(len(label), num_classes, device=device).scatter_(1, label.unsqueeze(1), 1.)
     return label
 
+@torch.no_grad()
+def distributed_sinkhorn(out, args):
+    # Sinkhorn method for online clustering.
+    Q = torch.exp(out / args.epsilon).t() # Q is K-by-B for consistency with notations from our paper
+    B = Q.shape[1] * args.world_size # number of samples to assign
+    K = Q.shape[0] # how many prototypes
+
+    # make the matrix sums to 1
+    sum_Q = torch.sum(Q)
+    dist.all_reduce(sum_Q)
+    Q /= sum_Q
+
+    for it in range(args.sinkhorn_iterations):
+        # normalize each row: total weight per prototype must be 1/K
+        sum_of_rows = torch.sum(Q, dim=1, keepdim=True)
+        dist.all_reduce(sum_of_rows)
+        Q /= sum_of_rows
+        Q /= K
+
+        # normalize each column: total weight per sample must be 1/B
+        Q /= torch.sum(Q, dim=0, keepdim=True)
+        Q /= B
+
+    Q *= B # the colomns must sum to 1 so that Q is an assignment
+    return Q.t()
+
 def pdist(sample_1, sample_2, norm=2, eps=1e-5):
     r"""Compute the matrix of all squared pairwise distances.
     Arguments
@@ -227,6 +254,10 @@ def clip_images(image_tensor, mean, std):
         m, s = mean[c], std[c]
         image_tensor[:, c] = torch.clamp(image_tensor[:, c], -m / s, (1 - m) / s)
     return image_tensor
+
+def set_requires_grad(module, flag):
+    for m in module.parameters():
+        m.requires_grad = flag
     
 def save_image_batch(imgs, output, col=None, size=None, pack=True):
     if isinstance(imgs, torch.Tensor):

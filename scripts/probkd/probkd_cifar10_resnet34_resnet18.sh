@@ -6,21 +6,25 @@ python datafree_kd.py \
 --student resnet18 \
 --lr 0.1 \
 --epochs 250 \
---kd_steps 10 \
+--kd_steps 5 \
+--kd_steps_interval 10,2,1 \
+--g_steps_interval 2,1,1 \
 --ep_steps 400 \
---g_steps 2 \
---lr_g 0.0003 \
+--g_steps 1 \
+--lr_g 0.001 \
 --adv 1 \
 --depth 2 \
 --T 20 \
 --lmda_ent 20 \
 --oh 1 \
 --act 0.001 \
---gpu 1 \
+--gpu 4 \
 --seed 0 \
+--bn 1 \
 --save_dir run/probkd \
---log_tag probkd_L2_line34 \
+--log_tag probkd_L2_line52_3 \
 --data_root /data/lijingru/cifar10/ \
---cond \
+--no_feature \
+--adv_type kl \
 --loss kl
 # --resume /data/lijingru/DataFree/checkpoints/datafree-probkd/cifar10-resnet34-resnet18--probkd_dcgan_L2_adv_testrelu2.pth

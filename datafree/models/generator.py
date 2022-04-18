@@ -134,7 +134,7 @@ class DCGAN_Generator(nn.Module):
 class DCGAN_Generator_CIFAR10(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
-    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', cond=False, n_emb=50):
+    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', cond=False, n_emb=50, widen_factor=1):
         super(DCGAN_Generator_CIFAR10, self).__init__()
         self.nz = nz
         depth_factor = 2 ** d
@@ -151,7 +151,7 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             base = [16, 16, 32, 64]
         elif type == 'wider':
             # Only support wrn40_2 as teacher.
-            base = [16, 32, 64, 128]
+            base = [16*widen_factor, 32*widen_factor, 64*widen_factor]
         if isinstance(img_size, (list, tuple)):
             self.init_size = ( img_size[0]//depth_factor, img_size[1]//depth_factor )
         else:    
@@ -225,7 +225,7 @@ class DCGAN_Generator_CIFAR10(nn.Module):
 class DCGAN_Generator_CIFAR10_more(nn.Module):
     """ Generator from DCGAN: https://arxiv.org/abs/1511.06434
     """
-    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', n_emb=50):
+    def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', n_emb=50, nChannels=None):
         super(DCGAN_Generator_CIFAR10_more, self).__init__()
         self.nz = nz
         self.cond = cond
@@ -242,7 +242,7 @@ class DCGAN_Generator_CIFAR10_more(nn.Module):
             base = [16, 16, 32, 64]
         elif type == 'wider':
             # Only support wrn40_2 as teacher.
-            base = [16, 32, 64, 128]
+            base = [32, 64, 128, 256]
         if isinstance(img_size, (list, tuple)):
             self.init_size = ( img_size[0]//depth_factor, img_size[1]//depth_factor )
         else:    

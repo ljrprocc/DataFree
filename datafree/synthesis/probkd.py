@@ -18,8 +18,21 @@ def reset_model(model):
             nn.init.normal_(m.weight, 1.0, 0.02)
             nn.init.constant_(m.bias, 0)
 
+class MultiPrototypes(nn.Module):
+    def __init__(self, output_dim, nmb_prototypes):
+        super(MultiPrototypes, self).__init__()
+        self.nmb_heads = len(nmb_prototypes)
+        for i, k in enumerate(nmb_prototypes):
+            self.add_module("prototypes" + str(i), nn.Linear(output_dim, k, bias=False))
+
+    def forward(self, x):
+        out = []
+        for i in range(self.nmb_heads):
+            out.append(getattr(self, "prototypes" + str(i))(x))
+        return out
+
 class ProbSynthesizer(BaseSynthesis):
-    def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=1, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0, l1=0.01, only_feature=False, depth=2, adv_type='js'):
+    def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=None, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0, l1=0.01, only_feature=False, depth=2, adv_type='js', bn=0, T=5):
         super(ProbSynthesizer, self).__init__(teacher, student)
         self.save_dir = save_dir
         self.img_size = img_size 
@@ -42,10 +55,12 @@ class ProbSynthesizer(BaseSynthesis):
         self.nz = nz
         self.L = depth + 1
         self.l1 = l1
+        self.bn = bn
         
         self.oh = oh
         self.act = act
         self.only_feature = only_feature
+        self.T = T
         self._get_teacher_bn()
         self.optimizers = []
         for i, G in enumerate(self.G_list):
@@ -55,10 +70,10 @@ class ProbSynthesizer(BaseSynthesis):
         # self.G = G
         # self.optimizers = [None] * len(G_list)
 
-        # self.hooks = []
-        # for m in teacher.modules():
-        #     if isinstance(m, nn.BatchNorm2d):
-        #         self.hooks.append(DeepInversionHook(m))
+        self.hooks = []
+        for m in teacher.modules():
+            if isinstance(m, nn.BatchNorm2d):
+                self.hooks.append(DeepInversionHook(m))
 
         # assert len(self.hooks)>0, 'input model should contains at least one BN layer for DeepInversion and Probablistic KD.'
     
@@ -72,90 +87,110 @@ class ProbSynthesizer(BaseSynthesis):
                 # print(type(self.teacher.layer4))
                 layers.append(self.teacher.layer4[-1].bn2)
         else:
-            layers = [self.teacher.block1.layer[-1].bn2, self.teacher.block2.layer[-1].bn2, self.teacher.block3.layer[-1].bn2]
+            layers = [self.teacher.block1.layer[-1].bn2, self.teacher.block1.layer[-1].bn2, self.teacher.block2.layer[-1].bn2, self.teacher.block3.layer[-1].bn2]
         self.stats = [(f.running_mean.data, f.running_var.data) for f in layers]
         self.bn_layers = layers
 
-    def synthesize(self, targets=None):
+    def synthesize(self, targets=None, l=0):
         self.student.eval()
         self.teacher.eval()
         # optimizers = []
-        
-        
-        
-        for i in range(self.iterations // len(self.G_list)):
-            if targets is None:
-                targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
-                targets = targets.sort()[0] # sort for better visualization
-            targets = targets.to(self.device)
+        G = self.G_list[l]
+        for i in range(self.iterations[l]):
+            # if targets is None:
+            #     targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
+            #     targets = targets.sort()[0] # sort for better visualization
+            # targets = targets.to(self.device)
             z1 = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
+            
             # l_rec = []
             # l_ent = []
-            for l, G in enumerate(self.G_list):
-                G.train()
-                self.optimizers[l].zero_grad()
+            # for l, G in enumerate(self.G_list):
+            G.train()
+            self.optimizers[l].zero_grad()
+            
+            # Rec and variance
+            # mu_theta, logvar_theta = G(z1, l=l)
+            mu_theta = G(z1, l=l)
+            if l > 0:
+                nch = mu_theta.size(1)
+                mu_l, var_l = self.stats[l]
+                sample_var = mu_theta.permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
+                # samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
+                mu_theta_mean = torch.mean(mu_theta, (0,2,3))
+                # print(l, mu_theta.shape, mu_l.shape)
+                # print(mu_theta_mean.shape, mu_l.shape)
                 
-                # Rec and variance
-                # mu_theta, logvar_theta = G(z1, l=l)
-                mu_theta = G(z1, l=l, y=targets)
-                if l > 0:
-                    nch = mu_theta.size(1)
-                    mu_l, var_l = self.stats[l]
-                    sample_var = mu_theta.permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
-                    # samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
-                    mu_theta_mean = torch.mean(mu_theta, (0,2,3))
-                   
-                    ## Directly calculate KL divergence, treat statistics as normal distribution.
-                    rec = torch.norm((mu_theta_mean - mu_l) / (2 * var_l), p=2)
-                    
-                    # Generate samples from q_{\theta}
-                    samples = mu_theta + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
-                    layer = getattr(self.teacher, 'layer{}'.format(l))
-                    
-                    func = lambda x: F.relu(x)
-                    samples = func(samples)
-                else:
-                    samples = self.normalizer(mu_theta)
-                    x_input = self.normalizer(samples.detach(), reverse=True)
-                    rec = torch.zeros(1).to(self.device)
-                # print(samples.shape)
-                t_out, t_feat = self.teacher(samples, l=l, return_features=True)
-                p = F.softmax(t_out, dim=1).mean(0)
-                ent = (p*p.log()).sum()
-                # if targets is None:
-                # loss_oh = F.cross_entropy( t_out, t_out.max(1)[1])
-                loss_oh = F.cross_entropy( t_out, targets )
-                loss_act = - t_feat.abs().mean()
-                # ent = ent.mean()
+                ## Directly calculate KL divergence, treat statistics as normal distribution.
+                # rec = torch.norm((mu_theta_mean - mu_l) / (2 * var_l), p=2)
+                # Ablation Study for target learning.
+                rec = 0.0
                 
-                # Negative Divergence.
-                if self.adv > 0:
-                    s_out = self.student(samples, l=l)
-                    if self.adv_type == 'js':
-                        l_js = jsdiv(s_out, t_out, T=3)
-                        loss_adv = 1.0-torch.clamp(l_js, 0.0, 1.0)
-                    if self.adv_type == 'kl':
-                        mask = (s_out.max(1)[1]==t_out.max(1)[1]).float()
-                        loss_adv = -(kldiv(s_out, t_out, reduction='none').sum(1) * mask).mean()
-                    # if loss_adv.item() == 0.0:
-                    #     print('Warning: high js divergence between teacher and student')
-                    #     print(ent, s_out.mean(), out_t_logit.mean())
-                else:
-                    loss_adv = torch.zeros(1).to(self.device)
+                # Generate samples from q_{\theta}
+                samples = mu_theta + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
+                # layer = getattr(self.teacher, 'layer{}'.format(l))
+                
+                func = lambda x: F.relu(x)
+                samples = func(samples)
+            else:
+                samples = self.normalizer(mu_theta)
+                x_input = self.normalizer(samples.detach(), reverse=True)
+                rec = torch.zeros(1).to(self.device)
+            # print(samples.shape)
+            t_out, t_feat = self.teacher(samples, l=l, return_features=True)
+            p = F.softmax(t_out / self.T, dim=1).mean(0)
+            ent = (p*p.log()).sum()
+            # if targets is None:
+            loss_oh = F.cross_entropy( t_out, t_out.max(1)[1])
+            # loss_oh = F.cross_entropy( t_out, targets )
+            loss_act = - t_feat.abs().mean()
+            if self.bn > 0:
+                loss_bn = sum([h.r_feature for h in self.hooks])
+            else:
+                loss_bn = torch.zeros(1).to(self.device)
+            # ent = ent.mean()
+            
+            # Negative Divergence.
+            if self.adv > 0:
+                s_out = self.student(samples, l=l)
+                if self.adv_type == 'js':
+                    l_js = jsdiv(s_out, t_out, T=3)
+                    loss_adv = 1.0-torch.clamp(l_js, 0.0, 1.0)
+                if self.adv_type == 'kl':
+                    mask = (s_out.max(1)[1]==t_out.max(1)[1]).float()
+                    loss_adv = -(kldiv(s_out, t_out, reduction='none', T=3).sum(1) * mask).mean()
+                # ng = (t_out - s_out).mean(0).sum(0)
+                # ng = -((torch.softmax(t_out / self.T, 1) - (torch.softmax(s_out / self.T, 1) * torch.softmax(t_out / self.T, 1)).sum(1).unsqueeze(1))**2).sum(1).mean()
+                # ng = -((t_out - s_out) ** 2).sum(1).mean()
+                
+                # 
+                # print(ng)
+                
+                # if loss_adv.item() == 0.0:
+                #     print('Warning: high js divergence between teacher and student')
+                #     print(ent, s_out.mean(), out_t_logit.mean())
+            else:
+                loss_adv = torch.zeros(1).to(self.device)
 
-                # print(rec, ent, loss_adv, loss_oh, loss_act)
-                # print(type(rec), type(ent))
-                loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act
-                # if l == 2:
-                #     print(ent, loss_adv)
-                loss.backward()
-                self.optimizers[l].step()
+            p_t = torch.softmax(t_out / self.T, 1)
+            # ng = -torch.mean((torch.min(p_t, 1 )[0] - 1) ** 2 + (p_t ** 2).sum(1) - 1)
+            # infinity temperature:
+            # ng = -F.l1_loss(s_out, t_out, reduction='mean')
+            ng = -F.mse_loss(s_out, t_out, reduction='mean')
+
+            # print(rec, ent, loss_adv, loss_oh, loss_act)
+            # print(type(rec), type(ent))
+            loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn + ng
+            # if l == 2:
+            #     print(ent, loss_adv)
+            loss.backward()
+            self.optimizers[l].step()
                 # if l == 1 and i % 50 == 0:
                 #     # Debug not log.
                 #     print(i, rec.item(), loss_adv.item())
         # z = torch.randn( size=(self.synthesis_batch_size, self.G_list[0].nz)).to(self.device)
         # inputs = self.G_list[0](z)
-        return {'synthetic': x_input}
+        return {'synthetic': x_input} if l == 0 else {}
 
     @torch.no_grad()
     def sample(self, l=0):
@@ -171,7 +206,7 @@ class ProbSynthesizer(BaseSynthesis):
             inputs = inputs + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
             # inputs = inputs + (logvar_theta / 2).exp() * torch.randn_like(inputs)
             # Activation at the last block
-            layer = getattr(self.teacher, 'layer{}'.format(l))
+            # layer = getattr(self.teacher, 'layer{}'.format(l))
             
             # func = lambda x: F.relu(layer[-1].bn2(layer[-1].conv2(F.relu(x))))
             func = lambda x: F.relu(x)

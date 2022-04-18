@@ -92,6 +92,8 @@ class WideResNet(nn.Module):
         if l < 1:
             out = self.conv1(x)
             out = self.block1(out)
+        else:
+            out = x
         if l < 2:
             out = self.block2(out)
         out = self.block3(out)
