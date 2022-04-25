@@ -12,17 +12,19 @@ python datafree_kd.py \
 --ep_steps 400 \
 --g_steps 1 \
 --lr_g 0.001 \
---adv 1 \
+--adv 0 \
 --depth 2 \
 --T 20 \
 --lmda_ent 20 \
 --oh 1 \
 --act 0.001 \
---gpu 3 \
+--gpu 4 \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd \
---log_tag probkd_L2_line54 \
+--log_tag probkd_L2_line68_2 \
 --data_root /data/lijingru/cifar10/ \
+--curr_option curr_log \
+--lambda_0 2.2 \
 --no_feature \
 --loss kl

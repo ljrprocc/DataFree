@@ -7,6 +7,7 @@ from .base import BaseSynthesis
 from datafree.hooks import DeepInversionHook
 from datafree.utils import ImagePool, DataIter, clip_images
 from datafree.criterions import jsdiv, kldiv
+from datafree.datasets.utils import curr_v, lambda_scheduler  
 
 def reset_model(model):
     for m in model.modules():
@@ -91,11 +92,15 @@ class ProbSynthesizer(BaseSynthesis):
         self.stats = [(f.running_mean.data, f.running_var.data) for f in layers]
         self.bn_layers = layers
 
-    def synthesize(self, targets=None, l=0):
+    def synthesize(self, targets=None, l=0, gv=None):
         self.student.eval()
         self.teacher.eval()
         # optimizers = []
         G = self.G_list[l]
+        if gv is not None:
+            g, v= gv
+            v = v.to(self.device)
+        
         for i in range(self.iterations[l]):
             # if targets is None:
             #     targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
@@ -139,7 +144,7 @@ class ProbSynthesizer(BaseSynthesis):
             # print(samples.shape)
             t_out, t_feat = self.teacher(samples, l=l, return_features=True)
             p = F.softmax(t_out / self.T, dim=1).mean(0)
-            ent = (p*p.log()).sum()
+            ent = -(p*p.log()).sum()
             # if targets is None:
             loss_oh = F.cross_entropy( t_out, t_out.max(1)[1])
             # loss_oh = F.cross_entropy( t_out, targets )
@@ -158,7 +163,11 @@ class ProbSynthesizer(BaseSynthesis):
                     loss_adv = 1.0-torch.clamp(l_js, 0.0, 1.0)
                 if self.adv_type == 'kl':
                     mask = (s_out.max(1)[1]==t_out.max(1)[1]).float()
-                    loss_adv = -(kldiv(s_out, t_out, reduction='none', T=3).sum(1) * mask).mean()
+                    loss_adv = -(kldiv(s_out, t_out, reduction='none', T=3).sum(1) * mask)
+                if gv is None:
+                    loss_adv = loss_adv.mean()
+                else:
+                    loss_adv = (v * loss_adv).sum()
                 # ng = (t_out - s_out).mean(0).sum(0)
                 # ng = -((torch.softmax(t_out / self.T, 1) - (torch.softmax(s_out / self.T, 1) * torch.softmax(t_out / self.T, 1)).sum(1).unsqueeze(1))**2).sum(1).mean()
                 # ng = -((t_out - s_out) ** 2).sum(1).mean()
@@ -176,11 +185,11 @@ class ProbSynthesizer(BaseSynthesis):
             # ng = -torch.mean((torch.min(p_t, 1 )[0] - 1) ** 2 + (p_t ** 2).sum(1) - 1)
             # infinity temperature:
             # ng = -F.l1_loss(s_out, t_out, reduction='mean')
-            ng = -F.mse_loss(s_out, t_out, reduction='mean')
+            # ng = -F.mse_loss(s_out, t_out, reduction='mean')
 
             # print(rec, ent, loss_adv, loss_oh, loss_act)
             # print(type(rec), type(ent))
-            loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn + ng
+            loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn
             # if l == 2:
             #     print(ent, loss_adv)
             loss.backward()
@@ -199,7 +208,7 @@ class ProbSynthesizer(BaseSynthesis):
         # inputs, logvar_theta = self.G_list[l](z, l=l)
         targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,), device=self.device)
         targets = targets.sort()[0]
-        inputs = self.G_list[l](z, l=l, y=targets)
+        inputs = self.G_list[l](z, l=l)
         if l > 0:
             _, var_l = self.stats[l]
             # sample inputs

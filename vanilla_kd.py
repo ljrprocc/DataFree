@@ -83,6 +83,8 @@ parser.add_argument('-p', '--print_freq', default=0, type=int,
                     metavar='N', help='print frequency (default: 10)')
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
+parser.add_argument('--curr_option', type=str, default='spl')
+parser.add_argument('--lambda_0', type=float, default=1.)
 best_acc1 = 0
 
 def main():
@@ -189,7 +191,7 @@ def main_worker(gpu, ngpus_per_node, args):
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
     args.normalizer = normalizer
-    teacher.load_state_dict(torch.load('checkpoints/pretrained/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
 
     def prepare_model(model):
         if not torch.cuda.is_available():
@@ -277,7 +279,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         args.current_epoch=epoch
-        train( train_loader, [student, teacher], optimizer, args)
+        train( train_loader, [student, teacher], optimizer, epoch, args)
         student.eval()
         eval_results = evaluator(student, device=args.gpu)
         (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
@@ -300,7 +302,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.rank<=0:
         args.logger.info("Best: %.4f"%best_acc1)
 
-def train(train_loader, model, optimizer, args):
+def train(train_loader, model, optimizer, epoch, args):
     loss_metric = datafree.metrics.RunningLoss(datafree.criterions.KLDiv(reduction='sum'))
     acc_metric = datafree.metrics.TopkAccuracy(topk=(1,5))
     student, teacher = model
@@ -308,6 +310,8 @@ def train(train_loader, model, optimizer, args):
     student.train()
     teacher.eval()
     for i, data in enumerate(train_loader):
+        global_iter = epoch * len(train_loader) + i
+        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter)
         if isinstance(data, (tuple,list)):
             images, targets = data
         else:
@@ -320,13 +324,25 @@ def train(train_loader, model, optimizer, args):
         with args.autocast():
             with torch.no_grad():
                 t_out, t_feat = teacher(images, return_features=True)
+            if args.curr_option == 'none':
+                reduct = 'mean'
+            else:
+                reduct = 'none'
             s_out = student(images.detach())
-            loss_kld = datafree.criterions.kldiv(s_out, t_out.detach(), T=args.T) * args.alpha
+            loss_kld = datafree.criterions.kldiv(s_out, t_out.detach(), T=args.T, reduction=reduct) * args.alpha
+            if reduct == 'none':
+                loss_kld = loss_kld.mean(1)
             if args.beta>0:
-                loss_ce = torch.nn.functional.cross_entropy( s_out, targets ) * args.beta
+                loss_ce = torch.nn.functional.cross_entropy( s_out, targets, reduction=reduct) * args.beta
             else:
                 loss_ce = 0
             loss_s = loss_kld + loss_ce
+
+        if reduct == 'none':
+            g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
+            # print(loss_s.mean(), v.mean())
+            # exit(-1)
+            loss_s = (v * loss_s).sum() + g
         optimizer.zero_grad()
         if args.fp16:
             scaler_s = args.scaler_s
