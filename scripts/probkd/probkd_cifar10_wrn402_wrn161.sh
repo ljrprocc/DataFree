@@ -22,7 +22,7 @@ python datafree_kd.py \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd \
---log_tag probkd_L2_line68_2 \
+--log_tag probkd_L2_line69 \
 --data_root /data/lijingru/cifar10/ \
 --curr_option curr_log \
 --lambda_0 2.2 \

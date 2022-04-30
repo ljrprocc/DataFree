@@ -146,6 +146,7 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
         cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
@@ -461,14 +462,17 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     global_iter = 0
     # with torch.no_grad():
-    #    image = synthesizer.sample()
-    #    image = synthesizer.normalizer(image)
-    #
-    #    t_out = teacher(image)
-    #    s_out = student(image)
-    #    loss_s = criterion(s_out, t_out)
-    #    g, v = datafree.datasets.utils.curr_v(loss_s, args.lambda_0, args.curr_option.split('_')[1])
-    g, v = None, torch.zeros(args.batch_size)
+    # #    image = synthesizer.sample()
+    #     xx = torch.ones(args.synthesis_batch_size, 3, 32, 32, device=args.gpu)
+    #     # print('sfdlkaj')
+    #     # xx = torch.FloatTensor(args.synthesis_batch_size, 3, 32, 32).uniform_(-1, 1).to(args.gpu)
+    #     # image = synthesizer.normalizer(image)
+        
+    #     t_outs = teacher(xx)
+    #     s_outs = student(xx)
+    #     loss_s = criterion(s_outs.detach(), t_outs.detach())
+    #     g, v = datafree.datasets.utils.curr_v(loss_s, args.lambda_0, args.curr_option.split('_')[1])
+    g, v = torch.zeros(1), torch.zeros(args.batch_size)
 
     for epoch in range(args.start_epoch, args.epochs):
         #if args.distributed:
@@ -489,9 +493,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 if l == 0:
                     vis_result = vis_results
 
-        if epoch > args.epochs // 5 and epoch < args.epochs // 4 * 3:
-            # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
-            synthesizer.adv += 1
+        # if epoch > args.epochs // 5 and epoch < args.epochs // 4 * 3:
+        # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
+        #    synthesizer.adv += 1
 
         for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
@@ -567,16 +571,19 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # if l == 2:
         #     datafree.utils.set_requires_grad(student.layer2, False)
     # global_iter = epoch * (args.ep_steps//kd_steps[0]) * (sum(kd_steps[:args.L]))
+    history = False
     for i in range(kd_step):
         loss_s = 0.0
         # datafree.utils.set_requires_grad(student, True)                   
         # for l in range(start, L):
-        images = synthesizer.sample(l) if args.method == 'probkd' else synthesizer.sample()
+        
+        images = synthesizer.sample(l, history=history) if args.method == 'probkd' else synthesizer.sample()
         
         lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter)
-        if l == 0:
+        
+        if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
-            
+        # print(images.max(), images.min()) 
         if args.gpu is not None:
             images = images.cuda(args.gpu, non_blocking=True)
         with args.autocast():
@@ -588,11 +595,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
                 reduct = 'none'
             s_out = student(images.detach(), l=l)
             loss_s = criterion(s_out, t_out.detach())
-                # single_loss_s = criterion(s_out, t_out.detach())
-                
-                # loss_s += single_loss_s
 
-        # loss_s /= L
         if reduct == 'none':
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
@@ -619,6 +622,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             .format(current_epoch=args.current_epoch, i=i, total_iters=kd_step, train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
             loss_metric.reset(), acc_metric.reset()
     
+    # exit(-1)
     return global_iter, g, v
     
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):

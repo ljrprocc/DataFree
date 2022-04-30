@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=3,5 python -m torch.distributed.launch --nproc_per_node 2 train_scratch.py --data_root /data/lijingru/timagenet/tiny-imagenet-200/ --dataset tiny_imagenet --batch-size 128 --epochs 300 --seed 0 --workers 8 --wd 0 --model resnet34 --dist-backend nccl

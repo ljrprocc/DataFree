@@ -34,6 +34,10 @@ class YKLEvaluator(object):
 
     def eval(self, model, device=None, progress=False, G_list=None, normalizer=None):
         self.metric.reset()
+        # print(device)
+        # print('************')
+        # print(device)
+        # exit(-1)
         # if G_list is not None:
         #     z = torch.randn(self.dataloader.batch_size, G_list[0].nz).to(device)
         with torch.no_grad():

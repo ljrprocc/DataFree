@@ -276,6 +276,7 @@ class CMISynthesizer(BaseSynthesis):
         #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.iterations, eta_min=0.1*self.lr)
         for it in range(self.iterations):
             inputs = self.generator(z)
+            # Here the inputs is unnormalized \in \mathbb{R}^{[0,1]}
             global_view, local_view = self.aug(inputs) # crop and normalize
 
             #############################################
@@ -311,7 +312,7 @@ class CMISynthesizer(BaseSynthesis):
             # Note that the cross entropy loss will be divided by the total batch size (current batch + cached batch)
             # we split the cross entropy loss to avoid too small gradients w.r.t the generator
             #if self.mem_bank.n_updates>0:
-                          # 1. gradient from current batch              +  2. gradient from cached data
+            # 1. gradient from current batch              +  2. gradient from cached data
             #    loss_cr = loss_cr[:, :self.synthesis_batch_size].mean() + loss_cr[:, self.synthesis_batch_size:].mean()
             #else: # 1. gradients only come from current batch      
             #    loss_cr = loss_cr.mean()

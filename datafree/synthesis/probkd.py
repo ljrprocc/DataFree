@@ -2,8 +2,11 @@ from torch import nn
 import torch
 import torch.nn.functional as F
 import random
+import os
+import shutil
 
 from .base import BaseSynthesis
+import datafree
 from datafree.hooks import DeepInversionHook
 from datafree.utils import ImagePool, DataIter, clip_images
 from datafree.criterions import jsdiv, kldiv
@@ -19,19 +22,6 @@ def reset_model(model):
             nn.init.normal_(m.weight, 1.0, 0.02)
             nn.init.constant_(m.bias, 0)
 
-class MultiPrototypes(nn.Module):
-    def __init__(self, output_dim, nmb_prototypes):
-        super(MultiPrototypes, self).__init__()
-        self.nmb_heads = len(nmb_prototypes)
-        for i, k in enumerate(nmb_prototypes):
-            self.add_module("prototypes" + str(i), nn.Linear(output_dim, k, bias=False))
-
-    def forward(self, x):
-        out = []
-        for i in range(self.nmb_heads):
-            out.append(getattr(self, "prototypes" + str(i))(x))
-        return out
-
 class ProbSynthesizer(BaseSynthesis):
     def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=None, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0, l1=0.01, only_feature=False, depth=2, adv_type='js', bn=0, T=5):
         super(ProbSynthesizer, self).__init__(teacher, student)
@@ -40,8 +30,11 @@ class ProbSynthesizer(BaseSynthesis):
         self.iterations = iterations
         self.lr_g = lr_g
         self.normalizer = normalizer
-        # self.data_pool = ImagePool(root=self.save_dir)
-        # self.data_iter = None
+        # Avoid duplicated saving.
+        if os.path.exists(self.save_dir):
+            shutil.rmtree(self.save_dir)
+        self.data_pool = ImagePool(root=self.save_dir)
+        self.data_iter = None
         self.transform = transform
         self.synthesis_batch_size = synthesis_batch_size
         self.sample_batch_size = sample_batch_size
@@ -57,19 +50,18 @@ class ProbSynthesizer(BaseSynthesis):
         self.L = depth + 1
         self.l1 = l1
         self.bn = bn
+        self.distributed = distributed
         
         self.oh = oh
         self.act = act
         self.only_feature = only_feature
         self.T = T
-        self._get_teacher_bn()
+        # self._get_teacher_bn()
         self.optimizers = []
         for i, G in enumerate(self.G_list):
             reset_model(G)
             optimizer = torch.optim.Adam(G.parameters(), self.lr_g, betas=[0.9, 0.99])
             self.optimizers.append(optimizer)
-        # self.G = G
-        # self.optimizers = [None] * len(G_list)
 
         self.hooks = []
         for m in teacher.modules():
@@ -77,70 +69,36 @@ class ProbSynthesizer(BaseSynthesis):
                 self.hooks.append(DeepInversionHook(m))
 
         # assert len(self.hooks)>0, 'input model should contains at least one BN layer for DeepInversion and Probablistic KD.'
-    
-    def _get_teacher_bn(self):
-        # todo: more automated layer design.
-        # ResNet type
-        if hasattr(self.teacher, 'layer1'):
-            layers = [self.teacher.bn1, self.teacher.layer1[-1].bn2, self.teacher.layer2[-1].bn2, self.teacher.layer3[-1].bn2]
-            # layers = [self.teacher.bn1, self.teacher.layer1[-1].bn1, self.teacher.layer2[-1].bn1, self.teacher.layer3[-1].bn1]
-            if hasattr(self.teacher, 'layer4'):
-                # print(type(self.teacher.layer4))
-                layers.append(self.teacher.layer4[-1].bn2)
-        else:
-            layers = [self.teacher.block1.layer[-1].bn2, self.teacher.block1.layer[-1].bn2, self.teacher.block2.layer[-1].bn2, self.teacher.block3.layer[-1].bn2]
-        self.stats = [(f.running_mean.data, f.running_var.data) for f in layers]
-        self.bn_layers = layers
 
-    def synthesize(self, targets=None, l=0, gv=None):
+    def synthesize(self, l=0, gv=None):
         self.student.eval()
         self.teacher.eval()
         # optimizers = []
         G = self.G_list[l]
+        best_cost = 9999999
+        best_inputs = None
         if gv is not None:
             g, v= gv
             v = v.to(self.device)
-        
+            g = g.to(self.device)
+        z = torch.randn(size=(self.synthesis_batch_size, self.nz), device=self.device).requires_grad_()
+        # Analysis this framework.
+        # reset_model(G)
+        # optimizer = torch.optim.Adam([{'params': G.parameters()}, {'params': [z]}], self.lr_g, betas=[0.5, 0.999])
         for i in range(self.iterations[l]):
-            # if targets is None:
-            #     targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
-            #     targets = targets.sort()[0] # sort for better visualization
-            # targets = targets.to(self.device)
-            z1 = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
             
-            # l_rec = []
-            # l_ent = []
-            # for l, G in enumerate(self.G_list):
+            z = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
+            
+           
             G.train()
+            # optimizer.zero_grad()
             self.optimizers[l].zero_grad()
             
             # Rec and variance
             # mu_theta, logvar_theta = G(z1, l=l)
-            mu_theta = G(z1, l=l)
-            if l > 0:
-                nch = mu_theta.size(1)
-                mu_l, var_l = self.stats[l]
-                sample_var = mu_theta.permute(1,0,2,3).contiguous().view([nch, -1]).var(1, unbiased=False)
-                # samples = mu_theta + (logvar_theta / 2).exp() * torch.randn_like(mu_theta)
-                mu_theta_mean = torch.mean(mu_theta, (0,2,3))
-                # print(l, mu_theta.shape, mu_l.shape)
-                # print(mu_theta_mean.shape, mu_l.shape)
-                
-                ## Directly calculate KL divergence, treat statistics as normal distribution.
-                # rec = torch.norm((mu_theta_mean - mu_l) / (2 * var_l), p=2)
-                # Ablation Study for target learning.
-                rec = 0.0
-                
-                # Generate samples from q_{\theta}
-                samples = mu_theta + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(mu_theta)
-                # layer = getattr(self.teacher, 'layer{}'.format(l))
-                
-                func = lambda x: F.relu(x)
-                samples = func(samples)
-            else:
-                samples = self.normalizer(mu_theta)
-                x_input = self.normalizer(samples.detach(), reverse=True)
-                rec = torch.zeros(1).to(self.device)
+            mu_theta = G(z, l=l)
+            samples = self.normalizer(mu_theta)
+            # rec = torch.zeros(1).to(self.device)
             # print(samples.shape)
             t_out, t_feat = self.teacher(samples, l=l, return_features=True)
             p = F.softmax(t_out / self.T, dim=1).mean(0)
@@ -153,7 +111,6 @@ class ProbSynthesizer(BaseSynthesis):
                 loss_bn = sum([h.r_feature for h in self.hooks])
             else:
                 loss_bn = torch.zeros(1).to(self.device)
-            # ent = ent.mean()
             
             # Negative Divergence.
             if self.adv > 0:
@@ -163,63 +120,52 @@ class ProbSynthesizer(BaseSynthesis):
                     loss_adv = 1.0-torch.clamp(l_js, 0.0, 1.0)
                 if self.adv_type == 'kl':
                     mask = (s_out.max(1)[1]==t_out.max(1)[1]).float()
-                    loss_adv = -(kldiv(s_out, t_out, reduction='none', T=3).sum(1) * mask)
-                if gv is None:
-                    loss_adv = loss_adv.mean()
-                else:
-                    loss_adv = (v * loss_adv).sum()
-                # ng = (t_out - s_out).mean(0).sum(0)
-                # ng = -((torch.softmax(t_out / self.T, 1) - (torch.softmax(s_out / self.T, 1) * torch.softmax(t_out / self.T, 1)).sum(1).unsqueeze(1))**2).sum(1).mean()
-                # ng = -((t_out - s_out) ** 2).sum(1).mean()
-                
-                # 
-                # print(ng)
-                
-                # if loss_adv.item() == 0.0:
-                #     print('Warning: high js divergence between teacher and student')
-                #     print(ent, s_out.mean(), out_t_logit.mean())
+                    loss_adv = -(kldiv(s_out, t_out, reduction='none', T=3).sum(1) * mask).mean()
             else:
                 loss_adv = torch.zeros(1).to(self.device)
-
-            p_t = torch.softmax(t_out / self.T, 1)
-            # ng = -torch.mean((torch.min(p_t, 1 )[0] - 1) ** 2 + (p_t ** 2).sum(1) - 1)
-            # infinity temperature:
-            # ng = -F.l1_loss(s_out, t_out, reduction='mean')
-            # ng = -F.mse_loss(s_out, t_out, reduction='mean')
-
-            # print(rec, ent, loss_adv, loss_oh, loss_act)
-            # print(type(rec), type(ent))
-            loss = rec + self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn
-            # if l == 2:
-            #     print(ent, loss_adv)
+            
+            loss = self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn
+            with torch.no_grad():
+                if best_cost > loss.item() or best_inputs is None:
+                    best_cost = loss.item()
+                    best_inputs = mu_theta
+                    # print(best_inputs.max(), best_inputs.min())
+                    
+           
             loss.backward()
             self.optimizers[l].step()
-                # if l == 1 and i % 50 == 0:
-                #     # Debug not log.
-                #     print(i, rec.item(), loss_adv.item())
-        # z = torch.randn( size=(self.synthesis_batch_size, self.G_list[0].nz)).to(self.device)
-        # inputs = self.G_list[0](z)
-        return {'synthetic': x_input} if l == 0 else {}
+            # optimizer.step()
+           
+        # exit(-1)
+        self.student.train()
+        self.data_pool.add( best_inputs)
+        dst = self.data_pool.get_dataset(transform=self.transform)
+        # init_dst = datafree.utils.UnlabeledImageDataset(self.init_dataset, transform=self.transform)
+        # dst = torch.utils.data.ConcatDataset([dst, init_dst])
+        if self.distributed:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(dst)
+        else:
+            train_sampler = None
+        loader = torch.utils.data.DataLoader(
+            dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
+            num_workers=4, pin_memory=True, sampler=train_sampler)
+        self.data_iter = DataIter(loader)
+
+                
+        return {'synthetic': best_inputs} if l == 0 else {}
 
     @torch.no_grad()
-    def sample(self, l=0):
-        self.G_list[l].eval() 
-        z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
-        # inputs, logvar_theta = self.G_list[l](z, l=l)
-        targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,), device=self.device)
-        targets = targets.sort()[0]
-        inputs = self.G_list[l](z, l=l)
-        if l > 0:
-            _, var_l = self.stats[l]
-            # sample inputs
-            inputs = inputs + torch.sqrt(var_l).unsqueeze(0).unsqueeze(2).unsqueeze(3) * torch.randn_like(inputs)
-            # inputs = inputs + (logvar_theta / 2).exp() * torch.randn_like(inputs)
-            # Activation at the last block
-            # layer = getattr(self.teacher, 'layer{}'.format(l))
-            
-            # func = lambda x: F.relu(layer[-1].bn2(layer[-1].conv2(F.relu(x))))
-            func = lambda x: F.relu(x)
-            inputs = func(inputs)
+    def sample(self, l=0, history=False):
+        if not history:
+            self.G_list[l].eval() 
+            z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
+            targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,), device=self.device)
+            targets = targets.sort()[0]
+            # print(z)
+            inputs = self.G_list[l](z.detach(), l=l)
+        else:
+            inputs = self.data_iter.next()
+           
         return inputs
 
 

@@ -203,10 +203,10 @@ class DCGAN_Generator_CIFAR10(nn.Module):
         # self.trans_logvar = nn.ModuleList(self.trans_logvar)
 
     def forward(self, z, l=0, y=None):
-        if self.cond:
-            assert y is not None
-            y = self.emb(y)
-            z = torch.cat([z, y], dim=1)
+        # if self.cond:
+        #     assert y is not None
+        #     y = self.emb(y)
+        #     z = torch.cat([z, y], dim=1)
         proj = self.project(z)
         proj = proj.view(proj.shape[0], -1, self.init_size[0], self.init_size[1])
         # proj = z.unsqueeze(-1).unsqueeze(-1)
