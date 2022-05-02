@@ -197,7 +197,10 @@ def main_worker(gpu, ngpus_per_node, args):
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
     args.normalizer = normalizer
-    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    if args.dataset == 'imagenet':
+        teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu'))
+    else:
+        teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
 
     def prepare_model(model):
         if not torch.cuda.is_available():
