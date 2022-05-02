@@ -60,7 +60,7 @@ class VGG(nn.Module):
         bn4 = self.block4[-1]
         return [bn1, bn2, bn3, bn4]
 
-    def forward(self, x, return_features=False):
+    def forward(self, x, return_features=False, l=0):
         h = x.shape[2]
         x = F.relu(self.block0(x))
         x = self.pool0(x)

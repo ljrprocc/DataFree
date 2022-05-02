@@ -4,6 +4,7 @@ import os
 import random
 import shutil
 import time
+from datetime import timedelta
 import warnings
 
 import registry
@@ -191,8 +192,11 @@ def main_worker(gpu, ngpus_per_node, args):
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
             args.rank = args.rank * ngpus_per_node + gpu
-        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                world_size=args.world_size, rank=args.rank)
+        os.environ['MASTER_ADDR'] = "127.0.0.1"
+        os.environ['MASTER_PORT'] = "6666"
+        os.environ["RANK"] = str(args.local_rank)
+        # os.environ["WORLD_SIZE"] = str(args.world_size)
+        dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
     if args.fp16:
         from torch.cuda.amp import autocast, GradScaler
         args.scaler = GradScaler() if args.fp16 else None 
@@ -489,13 +493,14 @@ def main_worker(gpu, ngpus_per_node, args):
                 # 2. Knowledge distillation
                 # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'probkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
-                global_iter, g, v = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter)
+                global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter)
                 if l == 0:
                     vis_result = vis_results
 
-        # if epoch > args.epochs // 5 and epoch < args.epochs // 4 * 3:
+        if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
         # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
-        #    synthesizer.adv += 1
+        #    synthesizer.adv += 0.5  # For cifar10
+            synthesizer.adv += 0.3  # For cifar100
 
         for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
@@ -623,7 +628,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             loss_metric.reset(), acc_metric.reset()
     
     # exit(-1)
-    return global_iter, g, v
+    return global_iter
     
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):
     if is_best:

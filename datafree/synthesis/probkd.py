@@ -81,7 +81,7 @@ class ProbSynthesizer(BaseSynthesis):
             g, v= gv
             v = v.to(self.device)
             g = g.to(self.device)
-        z = torch.randn(size=(self.synthesis_batch_size, self.nz), device=self.device).requires_grad_()
+        # z = torch.randn(size=(self.synthesis_batch_size, self.nz), device=self.device).requires_grad_()
         # Analysis this framework.
         # reset_model(G)
         # optimizer = torch.optim.Adam([{'params': G.parameters()}, {'params': [z]}], self.lr_g, betas=[0.5, 0.999])
@@ -98,6 +98,7 @@ class ProbSynthesizer(BaseSynthesis):
             # mu_theta, logvar_theta = G(z1, l=l)
             mu_theta = G(z, l=l)
             samples = self.normalizer(mu_theta)
+            x_inputs = self.normalizer(samples, reverse=True)
             # rec = torch.zeros(1).to(self.device)
             # print(samples.shape)
             t_out, t_feat = self.teacher(samples, l=l, return_features=True)
@@ -125,10 +126,10 @@ class ProbSynthesizer(BaseSynthesis):
                 loss_adv = torch.zeros(1).to(self.device)
             
             loss = self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn
-            with torch.no_grad():
-                if best_cost > loss.item() or best_inputs is None:
-                    best_cost = loss.item()
-                    best_inputs = mu_theta
+            # with torch.no_grad():
+            #     if best_cost > loss.item() or best_inputs is None:
+            #         best_cost = loss.item()
+            #         best_inputs = mu_theta
                     # print(best_inputs.max(), best_inputs.min())
                     
            
@@ -137,22 +138,22 @@ class ProbSynthesizer(BaseSynthesis):
             # optimizer.step()
            
         # exit(-1)
-        self.student.train()
-        self.data_pool.add( best_inputs)
-        dst = self.data_pool.get_dataset(transform=self.transform)
-        # init_dst = datafree.utils.UnlabeledImageDataset(self.init_dataset, transform=self.transform)
-        # dst = torch.utils.data.ConcatDataset([dst, init_dst])
-        if self.distributed:
-            train_sampler = torch.utils.data.distributed.DistributedSampler(dst)
-        else:
-            train_sampler = None
-        loader = torch.utils.data.DataLoader(
-            dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
-            num_workers=4, pin_memory=True, sampler=train_sampler)
-        self.data_iter = DataIter(loader)
+        # self.student.train()
+        # self.data_pool.add( best_inputs)
+        # dst = self.data_pool.get_dataset(transform=self.transform)
+        # # init_dst = datafree.utils.UnlabeledImageDataset(self.init_dataset, transform=self.transform)
+        # # dst = torch.utils.data.ConcatDataset([dst, init_dst])
+        # if self.distributed:
+        #     train_sampler = torch.utils.data.distributed.DistributedSampler(dst)
+        # else:
+        #     train_sampler = None
+        # loader = torch.utils.data.DataLoader(
+        #     dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
+        #     num_workers=4, pin_memory=True, sampler=train_sampler)
+        # self.data_iter = DataIter(loader)
 
                 
-        return {'synthetic': best_inputs} if l == 0 else {}
+        return {'synthetic': x_inputs} if l == 0 else {}
 
     @torch.no_grad()
     def sample(self, l=0, history=False):
@@ -160,9 +161,9 @@ class ProbSynthesizer(BaseSynthesis):
             self.G_list[l].eval() 
             z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
             targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,), device=self.device)
-            targets = targets.sort()[0]
+            # targets = targets.sort()[0]
             # print(z)
-            inputs = self.G_list[l](z.detach(), l=l)
+            inputs = self.G_list[l](z, l=l)
         else:
             inputs = self.data_iter.next()
            
