@@ -179,7 +179,11 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     # Setup models and datasets
     ############################################
+    if args.dataset == 'imagenet' or 'tiny_imagenet':
+        if args.model.startswith('resnet'):
+            args.model = args.model + '_imagenet'
     model = registry.get_model(args.model, num_classes=num_classes, pretrained=args.pretrained)
+    
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
     elif args.distributed:

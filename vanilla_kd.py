@@ -4,6 +4,7 @@ import random
 import shutil
 import time
 import warnings
+from datetime import timedelta
 
 import registry
 import datafree
@@ -50,7 +51,7 @@ parser.add_argument('-b', '--batch_size', default=128, type=int,
 # Device & FP16
 parser.add_argument('--world_size', default=-1, type=int,
                     help='number of nodes for distributed training')
-parser.add_argument('--rank', default=-1, type=int,
+parser.add_argument('--local_rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist_url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
@@ -118,7 +119,7 @@ def main():
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.local_rank, ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
@@ -132,14 +133,19 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
     if args.distributed:
-        if args.dist_url == "env://" and args.rank == -1:
-            args.rank = int(os.environ["RANK"])
+        if args.dist_url == "env://" and args.local_rank == -1:
+            args.local_rank = int(os.environ["RANK"])
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
-        dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                world_size=args.world_size, rank=args.rank)
+            args.local_rank = args.local_rank * ngpus_per_node + gpu
+        os.environ['MASTER_ADDR'] = "127.0.0.1"
+        os.environ['MASTER_PORT'] = "6666"
+        os.environ["RANK"] = str(args.local_rank)
+        # os.environ["WORLD_SIZE"] = str(args.world_size)
+        dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
+        # dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
+        #                         world_size=args.world_size, rank=args.rank)
     if args.fp16:
         from torch.cuda.amp import autocast, GradScaler
         args.scaler = GradScaler() if args.fp16 else None 
@@ -155,7 +161,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.log_tag = '-'+args.log_tag
     log_name = 'R%d-%s-%s-%s'%(args.rank, args.dataset, args.teacher, args.student) if args.multiprocessing_distributed else '%s-%s-%s'%(args.dataset, args.teacher, args.student)
     args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/vanilla_kd/log-%s-%s-%s-%s%s.txt'%(args.dataset, args.transfer_set, args.teacher, args.student, args.log_tag))
-    if args.rank<=0:
+    if args.local_rank<=0:
         for k, v in datafree.utils.flatten_dict( vars(args) ).items(): # print args
             args.logger.info( "%s: %s"%(k,v) )
 
@@ -212,8 +218,10 @@ def main_worker(gpu, ngpus_per_node, args):
                 model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
                 return model
             else:
-                model.cuda()
-                model = torch.nn.parallel.DistributedDataParallel(model)
+                model.to(args.local_rank)
+                args.batch_size = int(args.batch_size / ngpus_per_node)
+                args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+                model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[args.local_rank], output_device=args.local_rank)
                 return model
         elif args.gpu is not None:
             torch.cuda.set_device(args.gpu)
@@ -290,7 +298,7 @@ def main_worker(gpu, ngpus_per_node, args):
         best_acc1 = max(acc1, best_acc1)
         _best_ckpt = 'checkpoints/vanilla_kd/%s-%s-%s-%s.pth'%(args.dataset, args.transfer_set, args.teacher, args.student)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                and args.local_rank % ngpus_per_node == 0):
             save_checkpoint({
                 'epoch': epoch + 1,
                 'arch': args.student,
@@ -299,7 +307,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
             }, is_best, _best_ckpt)
-    if args.rank<=0:
+    if args.local_rank<=0:
         args.logger.info("Best: %.4f"%best_acc1)
 
 def train(train_loader, model, optimizer, epoch, args):

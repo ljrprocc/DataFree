@@ -100,12 +100,12 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
 parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
 
 # Device
-parser.add_argument('--gpu', default=0, type=int,
+parser.add_argument('--gpu', default=None, type=int,
                     help='GPU id to use.')
 # TODO: Distributed and FP-16 training 
 parser.add_argument('--world_size', default=-1, type=int,
                     help='number of nodes for distributed training')
-parser.add_argument('--rank', default=-1, type=int,
+parser.add_argument('--local_rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist_url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
@@ -174,7 +174,7 @@ def main():
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
         # Simply call main_worker function
-        main_worker(args.gpu, ngpus_per_node, args)
+        main_worker(args.local_rank, ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
@@ -187,11 +187,11 @@ def main_worker(gpu, ngpus_per_node, args):
         print("Use GPU: {} for training".format(args.gpu))
     if args.distributed:
         if args.dist_url == "env://" and args.rank == -1:
-            args.rank = int(os.environ["RANK"])
+            args.local_rank = int(os.environ["RANK"])
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
+            args.local_rank = args.local_rank * ngpus_per_node + gpu
         os.environ['MASTER_ADDR'] = "127.0.0.1"
         os.environ['MASTER_PORT'] = "6666"
         os.environ["RANK"] = str(args.local_rank)
@@ -250,8 +250,10 @@ def main_worker(gpu, ngpus_per_node, args):
                 model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
                 return model
             else:
-                model.cuda()
-                model = torch.nn.parallel.DistributedDataParallel(model)
+                model.to(args.local_rank)
+                args.batch_size = int(args.batch_size / ngpus_per_node)
+                args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+                model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[args.local_rank], output_device=args.local_rank)
                 return model
         elif args.gpu is not None:
             torch.cuda.set_device(args.gpu)
@@ -261,6 +263,12 @@ def main_worker(gpu, ngpus_per_node, args):
             # DataParallel will divide and allocate batch_size to all available GPUs
             model = torch.nn.DataParallel(model).cuda()
             return model
+
+    if args.dataset == 'imagenet' or 'tiny_imagenet':
+        if teacher.startswith('resnet'):
+            teacher = teacher + '_imagenet'
+        if student.startswith('resnet'):
+            student = student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])

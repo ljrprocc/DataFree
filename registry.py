@@ -67,6 +67,7 @@ MODEL_DICT = {
 IMAGENET_MODEL_DICT = {
     'resnet50_imagenet': classifiers.resnet_in.resnet50,
     'resnet18_imagenet': classifiers.resnet_in.resnet18,
+    'resnet34_imagenet': classifiers.resnet_in.resnet34,
     'mobilenetv2_imagenet': torchvision.models.mobilenet_v2,
 }
 
