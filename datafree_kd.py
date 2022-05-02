@@ -174,7 +174,7 @@ def main():
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
         # Simply call main_worker function
-        main_worker(args.local_rank, ngpus_per_node, args)
+        main_worker(args.local_rank if args.distributed else args.gpu, ngpus_per_node, args)
 
 
 def main_worker(gpu, ngpus_per_node, args):
@@ -186,7 +186,7 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
     if args.distributed:
-        if args.dist_url == "env://" and args.rank == -1:
+        if args.dist_url == "env://" and args.local_rank == -1:
             args.local_rank = int(os.environ["RANK"])
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
@@ -210,9 +210,9 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     if args.log_tag != '':
         args.log_tag = '-'+args.log_tag
-    log_name = 'R%d-%s-%s-%s%s'%(args.rank, args.dataset, args.teacher, args.student, args.log_tag) if args.multiprocessing_distributed else '%s-%s-%s'%(args.dataset, args.teacher, args.student)
+    log_name = 'R%d-%s-%s-%s%s'%(args.local_rank, args.dataset, args.teacher, args.student, args.log_tag) if args.multiprocessing_distributed else '%s-%s-%s'%(args.dataset, args.teacher, args.student)
     args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/datafree-%s/log-%s-%s-%s%s.txt'%(args.method, args.dataset, args.teacher, args.student, args.log_tag))
-    if args.rank<=0:
+    if args.local_rank<=0:
         for k, v in datafree.utils.flatten_dict( vars(args) ).items(): # print args
             args.logger.info( "%s: %s"%(k,v) )
 
@@ -263,12 +263,12 @@ def main_worker(gpu, ngpus_per_node, args):
             # DataParallel will divide and allocate batch_size to all available GPUs
             model = torch.nn.DataParallel(model).cuda()
             return model
-
-    if args.dataset == 'imagenet' or 'tiny_imagenet':
-        if teacher.startswith('resnet'):
-            teacher = teacher + '_imagenet'
-        if student.startswith('resnet'):
-            student = student + '_imagenet'
+    # print(args.dataset)
+    if args.dataset == 'imagenet' or args.dataset == 'tiny_imagenet':
+        if args.teacher.startswith('resnet'):
+            args.teacher = args.teacher + '_imagenet'
+        if args.student.startswith('resnet'):
+            args.student = args.student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
@@ -505,9 +505,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 if l == 0:
                     vis_result = vis_results
 
-        if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
-        # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
-        #    synthesizer.adv += 0.5  # For cifar10
+        # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
+        if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
+            # synthesizer.adv += 0.5  # For cifar10
             synthesizer.adv += 0.3  # For cifar100
 
         for vis_name, vis_image in vis_result.items():
@@ -542,7 +542,7 @@ def main_worker(gpu, ngpus_per_node, args):
         best_acc1 = max(acc1, best_acc1)
         _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+                and args.local_rank % ngpus_per_node == 0):
             save_dict = {
                 'epoch': epoch + 1,
                 'arch': args.student,
@@ -556,7 +556,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
             save_checkpoint(save_dict, is_best, _best_ckpt)
-    if args.rank<=0:
+    if args.local_rank<=0:
         args.logger.info("Best: %.4f"%best_acc1)
 
 
