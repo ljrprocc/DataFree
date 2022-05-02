@@ -79,7 +79,7 @@ SEGMENTATION_MODEL_DICT = {
 
 def get_model(name: str, num_classes, pretrained=False, **kwargs):
     if 'imagenet' in name:
-        model = IMAGENET_MODEL_DICT[name](pretrained=pretrained)
+        model = IMAGENET_MODEL_DICT[name](pretrained=False)
         if num_classes!=1000:
             model.fc = nn.Linear(model.fc.in_features, num_classes)
     elif 'deeplab' in name:
