@@ -194,10 +194,10 @@ def main_worker(gpu, ngpus_per_node, args):
     # Setup models
     ############################################
     if args.dataset == 'imagenet' or 'tiny_imagenet':
-        if teacher.startswith('resnet'):
-            teacher = teacher + '_imagenet'
-        if student.startswith('resnet'):
-            student = student + '_imagenet'
+        if args.teacher.startswith('resnet'):
+            args.teacher = args.teacher + '_imagenet'
+        if args.student.startswith('resnet'):
+            args.student = args.student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
     normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
