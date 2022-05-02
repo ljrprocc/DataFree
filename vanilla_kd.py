@@ -250,7 +250,7 @@ def main_worker(gpu, ngpus_per_node, args):
     optimizer = torch.optim.SGD(student.parameters(), args.lr, weight_decay=args.weight_decay, momentum=0.9)
     milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
     scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
-    print('************** after scheduler **************')
+    # print('************** after scheduler **************')
 
     ############################################
     # Resume
@@ -294,7 +294,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # Train Loop
     ############################################
     for epoch in range(args.start_epoch, args.epochs):
-        print('**********epoch start*************')
+        # print('**********epoch start*************')
         if args.distributed:
             train_sampler.set_epoch(epoch)
         args.current_epoch=epoch
@@ -329,7 +329,7 @@ def train(train_loader, model, optimizer, epoch, args):
     student.train()
     teacher.eval()
     for i, data in enumerate(train_loader):
-        print('*************** begin training **************')
+        # print('*************** begin training **************')
         global_iter = epoch * len(train_loader) + i
         lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter)
         if isinstance(data, (tuple,list)):
