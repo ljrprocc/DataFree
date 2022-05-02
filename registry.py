@@ -200,8 +200,8 @@ def get_dataset(name: str, data_root: str='data', return_transform=False, split=
             T.Normalize(**NORMALIZE_DICT[name]),
         ])
         # data_root = os.path.join( data_root, 'ILSVRC2012' ) 
-        train_dst = datasets.ImageNet(data_root, split='train', transform=train_transform)
-        val_dst = datasets.ImageNet(data_root, split='val', transform=val_transform)
+        train_dst = datasets.ImageFolder(os.path.join(data_root, 'train/'), transform=train_transform)
+        val_dst = datasets.ImageFolder(os.path.join(data_root, 'val/'), transform=val_transform)
     elif name=='imagenet_32x32':
         num_classes=1000
         train_transform = T.Compose([
