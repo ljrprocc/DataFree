@@ -1,14 +1,14 @@
 python datafree_kd.py \
 --method dfq \
 --dataset cifar100 \
---batch_size 256 \
+--batch_size 768 \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.05 \
 --epochs 200 \
---kd_steps 10 \
+--kd_steps_interval 10 \
 --ep_steps 400 \
---g_steps 1 \
+--g_steps_interval 1 \
 --lr_g 1e-3 \
 --adv 1 \
 --T 1 \
@@ -18,3 +18,6 @@ python datafree_kd.py \
 --balance 20 \
 --gpu 0 \
 --seed 0 \
+--data_root /data/lijingru/cifar100 \
+--log_tag dfq_test_line2
+--curr_option none 

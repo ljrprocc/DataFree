@@ -105,7 +105,7 @@ parser.add_argument('--gpu', default=None, type=int,
 # TODO: Distributed and FP-16 training 
 parser.add_argument('--world_size', default=-1, type=int,
                     help='number of nodes for distributed training')
-parser.add_argument('--local_rank', default=-1, type=int,
+parser.add_argument('--node_rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist_url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
@@ -168,7 +168,7 @@ def main():
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
+        # args.world_size = ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
@@ -180,21 +180,22 @@ def main():
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
+    # args.local_rank = gpu
     ############################################
     # GPU and FP16
     ############################################
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
     if args.distributed:
-        if args.dist_url == "env://" and args.local_rank == -1:
+        if args.dist_url == "env://" and args.node_rank == -1:
             args.local_rank = int(os.environ["RANK"])
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.local_rank = args.local_rank * ngpus_per_node + gpu
+            args.node_rank = args.node_rank * ngpus_per_node + gpu
         os.environ['MASTER_ADDR'] = "127.0.0.1"
         os.environ['MASTER_PORT'] = "6666"
-        os.environ["RANK"] = str(args.local_rank)
+        os.environ["RANK"] = str(args.node_rank)
         # os.environ["WORLD_SIZE"] = str(args.world_size)
         dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
     if args.fp16:
@@ -211,8 +212,9 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.log_tag != '':
         args.log_tag = '-'+args.log_tag
     log_name = 'R%d-%s-%s-%s%s'%(args.local_rank, args.dataset, args.teacher, args.student, args.log_tag) if args.multiprocessing_distributed else '%s-%s-%s'%(args.dataset, args.teacher, args.student)
+    # 
     args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/datafree-%s/log-%s-%s-%s%s.txt'%(args.method, args.dataset, args.teacher, args.student, args.log_tag))
-    if args.local_rank<=0:
+    if args.node_rank<=0:
         for k, v in datafree.utils.flatten_dict( vars(args) ).items(): # print args
             args.logger.info( "%s: %s"%(k,v) )
 
@@ -250,9 +252,9 @@ def main_worker(gpu, ngpus_per_node, args):
                 model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
                 return model
             else:
-                model.to(args.local_rank)
-                args.batch_size = int(args.batch_size / ngpus_per_node)
-                args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+                # model.to(args.local_rank)
+                # args.batch_size = int(args.batch_size / ngpus_per_node)
+                # args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
                 model = torch.nn.parallel.DistributedDataParallel(model,device_ids=[args.local_rank], output_device=args.local_rank)
                 return model
         elif args.gpu is not None:
@@ -293,6 +295,10 @@ def main_worker(gpu, ngpus_per_node, args):
                  normalizer=args.normalizer, device=args.gpu)
     elif args.method in ['zskt', 'dfad', 'dfq', 'dafl']:
         nz = 512 if args.method=='dafl' else 256
+        kd_steps = args.kd_steps_interval.split(',')
+        kd_steps = [int(x) for x in kd_steps]
+        g_steps = args.g_steps_interval.split(',')
+        g_steps = [int(x) for x in g_steps]
         generator = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
         generator = prepare_model(generator)
         criterion = torch.nn.L1Loss() if args.method=='dfad' else datafree.criterions.KLDiv()
@@ -352,13 +358,18 @@ def main_worker(gpu, ngpus_per_node, args):
         kd_steps = [int(x) for x in kd_steps]
         g_steps = args.g_steps_interval.split(',')
         g_steps = [int(x) for x in g_steps]
+        if args.curr_option == 'none':
+            reduct = 'batchmean'
+        else:
+            reduct = 'none'
         
         if args.loss == 'l1':
-            criterion = torch.nn.L1Loss()
+            criterion = torch.nn.L1Loss(reduction=reduct)
         elif args.loss == 'l2':
-            criterion = torch.nn.MSELoss()
+            criterion = torch.nn.MSELoss(reduction=reduct)
         else:
-            criterion = datafree.criterions.KLDiv(T=args.T)
+            criterion = datafree.criterions.KLDiv(T=args.T, reduction=reduct)
+            # criterion = datafree.criterions.kldiv
         # t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
             L = 1
@@ -485,6 +496,7 @@ def main_worker(gpu, ngpus_per_node, args):
     #     loss_s = criterion(s_outs.detach(), t_outs.detach())
     #     g, v = datafree.datasets.utils.curr_v(loss_s, args.lambda_0, args.curr_option.split('_')[1])
     g, v = torch.zeros(1), torch.zeros(args.batch_size)
+    L = 1
 
     for epoch in range(args.start_epoch, args.epochs):
         #if args.distributed:
@@ -497,7 +509,7 @@ def main_worker(gpu, ngpus_per_node, args):
             # 1. Data synthesis
             vis_result = None
             for l in range(L):
-                vis_results = synthesizer.synthesize(l=l) # g_steps
+                vis_results = synthesizer.synthesize(l=l) if args.method=='probkd' else synthesizer.synthesize() # g_steps
                 # 2. Knowledge distillation
                 # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'probkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
@@ -505,14 +517,14 @@ def main_worker(gpu, ngpus_per_node, args):
                 if l == 0:
                     vis_result = vis_results
 
-        # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
-        if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
+        # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2 and args.curr_option != 'none':
+        if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
             # synthesizer.adv += 0.5  # For cifar10
-            synthesizer.adv += 0.3  # For cifar100
+            synthesizer.adv += 0.2  # For cifar100
 
         for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
-                datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
+                datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag))
         
         student.eval()
         if args.log_y_kl:
@@ -592,7 +604,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         
         images = synthesizer.sample(l, history=history) if args.method == 'probkd' else synthesizer.sample()
         
-        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter)
+        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=0.00005 if args.dataset == 'cifar100' else 0.0001)
         
         if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
@@ -602,19 +614,16 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         with args.autocast():
             with torch.no_grad():
                 t_out, t_feat = teacher(images, return_features=True, l=l)
-            if args.curr_option == 'none':
-                reduct = 'mean'
-            else:
-                reduct = 'none'
+            
             s_out = student(images.detach(), l=l)
             loss_s = criterion(s_out, t_out.detach())
 
-        if reduct == 'none':
+        if args.curr_option != 'none':
             with torch.no_grad():
-                g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
-            # print(loss_s.mean(), v.mean())
+                g,v = datafree.datasets.utils.curr_v(l=loss_s.mean(1), lamda=lamda, spl_type=args.curr_option.split('_')[1])
+            print(loss_s.mean(1).mean(), v.mean())
             # exit(-1)
-            loss_s = (v * loss_s).sum() + g
+            loss_s = (v * (loss_s.mean(1))).mean() + g
         
             
         optimizer.zero_grad()

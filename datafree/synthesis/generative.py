@@ -79,5 +79,5 @@ class GenerativeSynthesizer(BaseSynthesis):
     def sample(self):
         self.generator.eval()
         z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
-        inputs = self.normalizer(self.generator(z))
+        inputs = self.generator(z)
         return inputs
