@@ -18,11 +18,11 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 5 \
+--gpu 0 \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd_test \
---log_tag probkd_L2_line82_dfq \
+--log_tag probkd_L2_line82_dfq_test \
 --data_root /data/lijingru/cifar10/ \
 --no_feature \
 --adv_type kl \

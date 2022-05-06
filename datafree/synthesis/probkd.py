@@ -98,7 +98,7 @@ class ProbSynthesizer(BaseSynthesis):
             # mu_theta, logvar_theta = G(z1, l=l)
             mu_theta = G(z, l=l)
             samples = self.normalizer(mu_theta)
-            x_inputs = self.normalizer(samples, reverse=True)
+            x_inputs = self.normalizer(samples.detach(), reverse=True)
             # rec = torch.zeros(1).to(self.device)
             # print(samples.shape)
             t_out, t_feat = self.teacher(samples, l=l, return_features=True)
