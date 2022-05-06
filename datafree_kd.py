@@ -195,7 +195,7 @@ def main_worker(gpu, ngpus_per_node, args):
             args.node_rank = args.node_rank * ngpus_per_node + gpu
         os.environ['MASTER_ADDR'] = "127.0.0.1"
         os.environ['MASTER_PORT'] = "6666"
-        os.environ["RANK"] = str(args.node_rank)
+        # os.environ["RANK"] = str(args.node_rank)
         # os.environ["WORLD_SIZE"] = str(args.world_size)
         dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
     if args.fp16:
@@ -391,6 +391,7 @@ def main_worker(gpu, ngpus_per_node, args):
             else:
                 type = 'normal'
             tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth, cond=args.cond, type=type, widen_factor=widen_factor)
+            # tg = datafree.models.generator.DCGAN_Generator(nz=nz, ngf=64, nc=3, img_size=32)
             # E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
             # E = prepare_model(E)
             
@@ -518,9 +519,10 @@ def main_worker(gpu, ngpus_per_node, args):
                     vis_result = vis_results
 
         # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2 and args.curr_option != 'none':
-        if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
+        # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':
+        if epoch  > args.epochs // 3 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
             # synthesizer.adv += 0.5  # For cifar10
-            synthesizer.adv += 0.2  # For cifar100
+            synthesizer.adv += 0.15  # For cifar100
 
         for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
@@ -568,7 +570,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
             save_checkpoint(save_dict, is_best, _best_ckpt)
-    if args.local_rank<=0:
+    if args.node_rank<=0:
         args.logger.info("Best: %.4f"%best_acc1)
 
 
@@ -604,7 +606,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         
         images = synthesizer.sample(l, history=history) if args.method == 'probkd' else synthesizer.sample()
         
-        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=0.00005 if args.dataset == 'cifar100' else 0.0001)
+        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=0.00002 if args.dataset == 'cifar100' else 0.0001)
         
         if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
@@ -619,11 +621,12 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             loss_s = criterion(s_out, t_out.detach())
 
         if args.curr_option != 'none':
+            real_loss_s = loss_s.sum(1) if args.loss == 'kl' else loss_s.mean(1)
             with torch.no_grad():
-                g,v = datafree.datasets.utils.curr_v(l=loss_s.mean(1), lamda=lamda, spl_type=args.curr_option.split('_')[1])
-            print(loss_s.mean(1).mean(), v.mean())
+                g,v = datafree.datasets.utils.curr_v(l=real_loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
+            # print(real_loss_s.mean(), v.mean())
             # exit(-1)
-            loss_s = (v * (loss_s.mean(1))).mean() + g
+            loss_s = (v * (real_loss_s)).mean() + g
         
             
         optimizer.zero_grad()
