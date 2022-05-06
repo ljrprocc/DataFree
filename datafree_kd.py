@@ -380,7 +380,7 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             args.start_l = 0
             args.g_steps *= L
-        assert args.no_feature or len(kd_steps) == L, 'gdynb'
+        assert args.no_feature or len(kd_steps) == L, 'not good.'
         args.L = L
         for l in range(L):
             nz=512
