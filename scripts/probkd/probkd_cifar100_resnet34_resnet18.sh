@@ -14,15 +14,15 @@ python datafree_kd.py \
 --lr_g 0.001 \
 --adv 0. \
 --depth 2 \
---T 10 \
---lmda_ent 0 \
+--T 5 \
+--lmda_ent 20 \
 --oh 1 \
 --act 0. \
---gpu 1 \
+--gpu 4 \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd_test \
---log_tag probkd_L2_line13 \
+--log_tag probkd_L2_line14 \
 --data_root /data/lijingru/cifar100/ \
 --no_feature \
 --adv_type kl \

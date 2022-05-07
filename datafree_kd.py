@@ -520,9 +520,9 @@ def main_worker(gpu, ngpus_per_node, args):
 
         # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2 and args.curr_option != 'none':
         # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':
-        if epoch  > args.epochs // 3 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
+        if epoch  > args.epochs // 3 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none' and epoch % 2 == 0:    
             # synthesizer.adv += 0.5  # For cifar10
-            synthesizer.adv += 0.15  # For cifar100
+            synthesizer.adv += 0.3  # For cifar100
 
         for vis_name, vis_image in vis_result.items():
             if vis_image.shape[1] == 3:
