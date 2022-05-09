@@ -32,6 +32,9 @@ parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'probkd'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--adv_type',choices=['js', 'kl'], default='js', help='Adversirial training for which divergence.')
+parser.add_argument('--grad_adv', default=0.2, type=float, help='the gradient for adding lambda_adv.')
+parser.add_argument('--begin_fraction', default=0.25, types=float, help='Begin epoch for open the adversarial training.')
+parser.add_argument('--end_fraction', default=0.75, types=float, help='End epoch for open the adversarial training.')
 parser.add_argument('--cond', action="store_true", help='using class-conditional generation strategy.')
 parser.add_argument('--bn', default=0, type=float, help='scaling factor for BN regularization')
 parser.add_argument('--oh', default=0, type=float, help='scaling factor for one hot loss (cross entropy)')
@@ -518,10 +521,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 if l == 0:
                     vis_result = vis_results
 
-        # if epoch > args.epochs // 6 and epoch < args.epochs // 3 * 2 and args.curr_option != 'none':
+        # if epoch > args.epochs // 6 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':
         # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':
-        if epoch  > args.epochs // 3 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
+        
+        # if epoch  > args.epochs // 3 and epoch < args.epochs // 4 * 3 and args.curr_option != 'none':    
             # synthesizer.adv += 0.5  # For cifar10
+        if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
             synthesizer.adv += 0.2  # For cifar100
 
         for vis_name, vis_image in vis_result.items():

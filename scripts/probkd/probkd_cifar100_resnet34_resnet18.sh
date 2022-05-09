@@ -18,15 +18,15 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 0 \
+--gpu 4 \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd_test \
---log_tag probkd_L2_line17 \
+--log_tag probkd_L2_line20 \
 --data_root /data/lijingru/cifar100/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \
 --lambda_0 1 \
---loss kl
+--loss l1
 # --resume /data/lijingru/DataFree/checkpoints/datafree-probkd/cifar10-resnet34-resnet18--probkd_dcgan_L2_adv_testrelu2.pth
