@@ -60,7 +60,7 @@ class ProbSynthesizer(BaseSynthesis):
         self.optimizers = []
         for i, G in enumerate(self.G_list):
             reset_model(G)
-            optimizer = torch.optim.Adam(G.parameters(), self.lr_g, betas=[0.9, 0.99])
+            optimizer = torch.optim.Adam(G.parameters(), self.lr_g, betas=[0.5, 0.99])
             self.optimizers.append(optimizer)
 
         self.hooks = []

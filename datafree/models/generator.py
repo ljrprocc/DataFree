@@ -172,16 +172,9 @@ class DCGAN_Generator_CIFAR10(nn.Module):
                 nn.Upsample(scale_factor=2)
             ]
             # Align the feature map channels with resnet.
-            # self.trans_convs.append(nn.Sequential(
-            #     nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 3, 1, 1, bias=False),
-            #     nn.BatchNorm2d(base[d-1-i]),
-            #     nn.LeakyReLU(slope),
-            #     nn.Conv2d(base[d-1-i], base[d-1-i],3, 1, 1)
-            # ))
+           
             self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
-            # self.trans_logvar.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
-            # self.trans_logvar.append(nn.Linear(ngf * depth_factor // 2 * (self.init_size[0] * (2**i))*(self.init_size[0] * (2**i)), base[d-1-i]))
-            # self.trans_convs.append()
+           
             depth_factor = depth_factor // 2
         main_module += [
             nn.Conv2d(ngf*2, ngf, 3, 1, 1, bias=False),
@@ -228,11 +221,11 @@ class DCGAN_Generator_CIFAR10_more(nn.Module):
     def __init__(self, nz=100, ngf=128, nc=3, img_size=64, slope=0.2, d=2, type='normal', n_emb=50, nChannels=None):
         super(DCGAN_Generator_CIFAR10_more, self).__init__()
         self.nz = nz
-        self.cond = cond
-        if cond:
-            self.emb = nn.Embedding(num_classes, n_emb)
-        else:
-            n_emb = 0
+        # self.cond = cond
+        # if cond:
+        #     self.emb = nn.Embedding(num_classes, n_emb)
+        # else:
+        #     n_emb = 0
         depth_factor = 2 ** d
         assert d in [2, 3]
         assert type in ['normal', 'tiny', 'wider']
@@ -288,14 +281,14 @@ class DCGAN_Generator_CIFAR10_more(nn.Module):
 
         if l == 0:
             output = self.main(proj)
-            return output, None
+            return output
         else:
             output_raw = self.main[:-(4*l - 1)](proj)
             output = self.trans_convs[-l](output_raw)
             output_t = self.trans_ori_feat[-l](output_raw)
             output_t = F.relu(output_t)
 
-        return output, output_t
+            return output, output_t
         # return output
 
 class VAE_Encoder_CIFAR10(nn.Module):
