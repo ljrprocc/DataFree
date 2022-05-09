@@ -22,7 +22,10 @@ python datafree_kd.py \
 --seed 0 \
 --bn 1 \
 --save_dir run/probkd_test \
---log_tag probkd_L2_line18 \
+--log_tag probkd_L2_line18_2 \
+--begin_fraction 0.33333 \
+--end_fraction 0.75 \
+--grad_adv 0.2 \
 --data_root /data/lijingru/cifar100/ \
 --no_feature \
 --adv_type kl \
