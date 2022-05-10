@@ -40,13 +40,15 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('--gpu', default=None, type=str,
                     help='GPU id to use.')
+parser.add_argument('--print_freq', default=0, type=int,
+                    help='Print freq.')
 
 # Device & FP16
 parser.add_argument('--fp16', action='store_true',
                     help='use fp16')
 parser.add_argument('--world-size', default=-1, type=int,
                     help='number of nodes for distributed training')
-parser.add_argument('--local_rank', default=-1, type=int,
+parser.add_argument('--rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist-url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
@@ -101,7 +103,7 @@ def main():
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
+        # args.world_size = ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
@@ -113,6 +115,7 @@ def main():
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
+    args.local_rank = gpu
 
     ############################################
     # GPU and FP16
@@ -128,7 +131,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.rank = args.rank * ngpus_per_node + gpu
+            args.local_rank = args.rank * ngpus_per_node + gpu
         # print(args.rank)
         os.environ['MASTER_ADDR'] = "127.0.0.1"
         os.environ['MASTER_PORT'] = "6666"
@@ -152,7 +155,7 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/scratch/log-%s-%s.txt'%(args.dataset, args.model))
         logger = args.logger
-    if args.local_rank<=0:
+    if args.rank<=0:
         for k, v in datafree.utils.flatten_dict( vars(args) ).items(): # print args
             logger.info( "%s: %s"%(k,v) )
     
@@ -182,8 +185,17 @@ def main_worker(gpu, ngpus_per_node, args):
     if args.dataset == 'imagenet' or 'tiny_imagenet':
         if args.model.startswith('resnet'):
             args.model = args.model + '_imagenet'
-    model = registry.get_model(args.model, num_classes=num_classes, pretrained=args.pretrained)
+
     
+        
+    model = registry.get_model(args.model, num_classes=num_classes, pretrained=args.pretrained)
+    if args.dataset == 'tiny_imagenet':
+        model.avgpool = nn.AdaptiveAvgPool2d(1)
+        num_ftrs = model.fc.in_features
+        model.fc = nn.Linear(num_ftrs, 200)
+        model.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        model.maxpool = nn.Sequential()
+
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
     elif args.distributed:
@@ -210,6 +222,20 @@ def main_worker(gpu, ngpus_per_node, args):
     else:
         # DataParallel will divide and allocate batch_size to all available GPUs
         model = torch.nn.DataParallel(model).cuda()
+
+    if args.dataset == 'tiny_imagenet':
+        pretrained_dict = torch.load('checkpoints/scratch/%s_%s.pth'%('imagenet', args.model), map_location='cpu')
+
+        model_dict = model.state_dict()
+        first_layer_weight = model_dict['module.conv1.weight']
+        first_layer_bias = model_dict['module.conv1.bias']
+
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+
+        model_dict.update(pretrained_dict) 
+        model_dict['module.conv1.weight'] = first_layer_weight
+        model_dict['module.conv1.bias']   = first_layer_bias
+        model.load_state_dict(model_dict)
 
     ############################################
     # Setup optimizer
@@ -266,7 +292,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.distributed:
             train_sampler.set_epoch(epoch)
         args.current_epoch=epoch
-        train(train_loader, model, criterion, optimizer, args)
+        train(train_loader, model, criterion, optimizer, logger, args)
         model.eval()
         # print()
         eval_results = evaluator(model, device=next(model.parameters()).device)
@@ -276,7 +302,10 @@ def main_worker(gpu, ngpus_per_node, args):
         scheduler.step()
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
-        _best_ckpt = 'checkpoints/scratch/%s_%s.pth'%(args.dataset, args.model)
+        if args.distributed:
+            _best_ckpt = 'checkpoints/scratch/%s_%s_R%d.pth'%(args.dataset, args.model, args.local_rank)
+        else:
+            _best_ckpt = 'checkpoints/scratch/%s_%s.pth'%(args.dataset, args.model)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.local_rank % ngpus_per_node == 0):
             save_checkpoint({
@@ -287,11 +316,11 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
                 'scheduler': scheduler.state_dict()
             }, is_best, _best_ckpt)
-    if args.local_rank<=0:
+    if args.rank<=0:
         logger.info("Best: %.4f"%best_acc1)
 
 
-def train(train_loader, model, criterion, optimizer, args):
+def train(train_loader, model, criterion, optimizer, logger, args):
     global best_acc1
     loss_metric = datafree.metrics.RunningLoss(nn.CrossEntropyLoss(reduction='sum'))
     acc_metric = datafree.metrics.TopkAccuracy(topk=(1,5))

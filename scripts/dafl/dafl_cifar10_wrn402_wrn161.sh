@@ -2,13 +2,13 @@ python datafree_kd.py \
 --method dafl \
 --dataset cifar10 \
 --batch_size 256 \
---teacher wrn40_2 \
---student wrn16_1 \
+--teacher resnet34 \
+--student resnet18 \
 --lr 0.1 \
---epochs 200 \
---kd_steps 5 \
+--epochs 250 \
+--kd_steps_interval 5 \
 --ep_steps 400 \
---g_steps 1 \
+--g_steps_interval 1 \
 --lr_g 1e-3 \
 --adv 0 \
 --T 20 \
@@ -16,7 +16,7 @@ python datafree_kd.py \
 --oh 1 \
 --act 0.001 \
 --balance 20 \
---gpu 0 \
+--gpu 2 \
 --seed 0 \
---data_root /data/lijingru/cifar10/ \
---print_freq 100
+--log_tag dafl_interval \
+--data_root /data/lijingru/cifar10/

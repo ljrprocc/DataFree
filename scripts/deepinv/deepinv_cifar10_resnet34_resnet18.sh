@@ -6,9 +6,9 @@ python datafree_kd.py \
 --student resnet18 \
 --lr 0.1 \
 --epochs 200 \
---kd_steps 400 \
+--kd_steps_interval 400 \
 --ep_steps 400 \
---g_steps 1000 \
+--g_steps_interval 1000 \
 --lr_g 0.1 \
 --adv 1 \
 --bn 10 \
@@ -16,8 +16,9 @@ python datafree_kd.py \
 --T 20 \
 --act 0 \
 --balance 0 \
---gpu 6 \
+--gpu 2 \
 --seed 0 \
+--adv_type js \
 --save_dir run/deepinv \
 --log_tag deepinv \
 --data_root /data/lijingru/cifar10/

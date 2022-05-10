@@ -140,7 +140,7 @@ parser.add_argument('-p', '--print_freq', default=0, type=int,
 parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 # Currcurilum Learning options
-parser.add_argument('--curr_option', type=str, default='spl')
+parser.add_argument('--curr_option', type=str, default='none')
 parser.add_argument('--lambda_0', type=float, default=1.)
 best_acc1 = 0
 
@@ -236,6 +236,10 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     # Setup models
     ############################################
+    kd_steps = args.kd_steps_interval.split(',')
+    kd_steps = [int(x) for x in kd_steps]
+    g_steps = args.g_steps_interval.split(',')
+    g_steps = [int(x) for x in g_steps]
     def prepare_model(model):
         if not torch.cuda.is_available():
             print('using CPU, this will be slow')
@@ -298,10 +302,7 @@ def main_worker(gpu, ngpus_per_node, args):
                  normalizer=args.normalizer, device=args.gpu)
     elif args.method in ['zskt', 'dfad', 'dfq', 'dafl']:
         nz = 512 if args.method=='dafl' else 256
-        kd_steps = args.kd_steps_interval.split(',')
-        kd_steps = [int(x) for x in kd_steps]
-        g_steps = args.g_steps_interval.split(',')
-        g_steps = [int(x) for x in g_steps]
+        
         generator = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
         generator = prepare_model(generator)
         criterion = torch.nn.L1Loss() if args.method=='dfad' else datafree.criterions.KLDiv()
@@ -357,10 +358,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # E_list = []
         # L = teacher.num_blocks
         # for debug
-        kd_steps = args.kd_steps_interval.split(',')
-        kd_steps = [int(x) for x in kd_steps]
-        g_steps = args.g_steps_interval.split(',')
-        g_steps = [int(x) for x in g_steps]
+        
         if args.curr_option == 'none':
             reduct = 'batchmean'
         else:
@@ -603,7 +601,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # if l == 2:
         #     datafree.utils.set_requires_grad(student.layer2, False)
     # global_iter = epoch * (args.ep_steps//kd_steps[0]) * (sum(kd_steps[:args.L]))
-    history = False
+    history = args.method == 'cmi' or args.method == 'deepinv'
     for i in range(kd_step):
         loss_s = 0.0
         # datafree.utils.set_requires_grad(student, True)                   
