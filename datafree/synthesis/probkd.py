@@ -60,7 +60,7 @@ class ProbSynthesizer(BaseSynthesis):
         self.optimizers = []
         for i, G in enumerate(self.G_list):
             reset_model(G)
-            optimizer = torch.optim.Adam(G.parameters(), self.lr_g, betas=[0.5, 0.99])
+            optimizer = torch.optim.Adam(G.parameters(), self.lr_g, betas=[0.9, 0.99])
             self.optimizers.append(optimizer)
 
         self.hooks = []
@@ -98,7 +98,7 @@ class ProbSynthesizer(BaseSynthesis):
             # mu_theta, logvar_theta = G(z1, l=l)
             mu_theta = G(z, l=l)
             samples = self.normalizer(mu_theta)
-            x_inputs = self.normalizer(samples.detach(), reverse=True)
+            x_inputs = self.normalizer(samples, reverse=True)
             # rec = torch.zeros(1).to(self.device)
             # print(samples.shape)
             t_out, t_feat = self.teacher(samples, l=l, return_features=True)
@@ -175,5 +175,3 @@ class ProbSynthesizer(BaseSynthesis):
         
         
                 
-
-
