@@ -31,8 +31,8 @@ class ProbSynthesizer(BaseSynthesis):
         self.lr_g = lr_g
         self.normalizer = normalizer
         # Avoid duplicated saving.
-        if os.path.exists(self.save_dir):
-            shutil.rmtree(self.save_dir)
+        # if os.path.exists(self.save_dir):
+        #     shutil.rmtree(self.save_dir)
         self.data_pool = ImagePool(root=self.save_dir)
         self.data_iter = None
         self.transform = transform

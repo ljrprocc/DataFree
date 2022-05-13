@@ -108,7 +108,7 @@ parser.add_argument('--gpu', default=None, type=int,
 # TODO: Distributed and FP-16 training 
 parser.add_argument('--world_size', default=-1, type=int,
                     help='number of nodes for distributed training')
-parser.add_argument('--local_rank', default=-1, type=int,
+parser.add_argument('--rank', default=-1, type=int,
                     help='node rank for distributed training')
 parser.add_argument('--dist_url', default='tcp://224.66.41.62:23456', type=str,
                     help='url used to set up distributed training')
@@ -171,9 +171,10 @@ def main():
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
-        args.world_size = ngpus_per_node * args.world_size
+        # args.world_size = ngpus_per_node * args.world_size
         # Use torch.multiprocessing.spawn to launch distributed processes: the
         # main_worker process function
+        
         mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, args))
     else:
         # Simply call main_worker function
@@ -183,6 +184,8 @@ def main():
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     args.gpu = gpu
+    if args.distributed:
+        args.local_rank = gpu
     ############################################
     # GPU and FP16
     ############################################
@@ -194,9 +197,9 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.multiprocessing_distributed:
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
-            args.local_rank = args.local_rank * ngpus_per_node + gpu
+            args.local_rank = args.rank * ngpus_per_node + gpu
         os.environ['MASTER_ADDR'] = "127.0.0.1"
-        os.environ['MASTER_PORT'] = "6666"
+        os.environ['MASTER_PORT'] = "6667"
         os.environ["RANK"] = str(args.local_rank)
         # os.environ["WORLD_SIZE"] = str(args.world_size)
         dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
@@ -213,11 +216,20 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     if args.log_tag != '':
         args.log_tag = '-'+args.log_tag
-    log_name = 'R%d-%s-%s-%s%s'%(args.local_rank, args.dataset, args.teacher, args.student, args.log_tag) if args.multiprocessing_distributed else '%s-%s-%s'%(args.dataset, args.teacher, args.student)
-    args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/datafree-%s/log-%s-%s-%s%s.txt'%(args.method, args.dataset, args.teacher, args.student, args.log_tag))
-    if args.local_rank<=0:
+    if args.distributed:
+        log_name = 'R%d-%s-%s-%s'%(args.local_rank, args.dataset, args.teacher, args.student) 
+    else:
+        log_name = '%s-%s-%s'%(args.dataset, args.teacher, args.student)
+    
+    if args.distributed:
+        args.logger = [None] * args.world_size
+        logger = args.logger[args.local_rank] = datafree.utils.logger.get_logger(log_name, output='checkpoints/datafree-%s/log-%s-%s-%s%s-R%d.txt'%(args.method, args.dataset, args.teacher, args.student, args.log_tag, args.local_rank))
+        
+    else:
+        logger = args.logger = datafree.utils.logger.get_logger(log_name, output='checkpoints/datafree-%s/log-%s-%s-%s%s.txt'%(args.method, args.dataset, args.teacher, args.student, args.log_tag))
+    if args.rank<=0:
         for k, v in datafree.utils.flatten_dict( vars(args) ).items(): # print args
-            args.logger.info( "%s: %s"%(k,v) )
+            logger.info( "%s: %s"%(k,v) )
 
     ############################################
     # Setup dataset
@@ -274,10 +286,17 @@ def main_worker(gpu, ngpus_per_node, args):
             args.student = args.student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
+    if args.dataset == 'tiny_imagenet':
+        teacher.avgpool = nn.AdaptiveAvgPool2d(1)
+        num_ftrs = teacher.fc.in_features
+        teacher.fc = nn.Linear(num_ftrs, 200)
+        teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        teacher.maxpool = nn.Sequential()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
-    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    
     student = prepare_model(student)
     teacher = prepare_model(teacher)
+    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     criterion = datafree.criterions.KLDiv(T=args.T)
     
     ############################################
@@ -355,6 +374,7 @@ def main_worker(gpu, ngpus_per_node, args):
         kd_steps = [int(x) for x in kd_steps]
         g_steps = args.g_steps_interval.split(',')
         g_steps = [int(x) for x in g_steps]
+        img_size = 32 if args.dataset.startswith('cifar') else 64
         
         if args.loss == 'l1':
             criterion = torch.nn.L1Loss()
@@ -375,14 +395,15 @@ def main_worker(gpu, ngpus_per_node, args):
         assert args.no_feature or len(kd_steps) == L, 'gdynb'
         args.L = L
         for l in range(L):
-            nz=512
+            nz=512 if args.dataset.startswith('cifar') else 1024
             widen_factor = 1
             if args.teacher.startswith('wrn'):
                 type = 'wider'
                 widen_factor = int(args.teacher.split('_')[-1])
             else:
                 type = 'normal'
-            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth, cond=args.cond, type=type, widen_factor=widen_factor)
+            tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=img_size, d=args.depth, cond=args.cond, type=type, widen_factor=widen_factor)
+            # tg = datafree.models.generator.DCGAN_Generator(nz=nz, ngf=64, nc=3, img_size=img_size)
             # E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
             # E = prepare_model(E)
             
@@ -396,7 +417,7 @@ def main_worker(gpu, ngpus_per_node, args):
             G_list=G_list,
             nz=nz,
             num_classes=num_classes,
-            img_size=32,
+            img_size=img_size,
             iterations=g_steps,
             lr_g=args.lr_g,
             synthesis_batch_size=args.synthesis_batch_size,
@@ -528,14 +549,14 @@ def main_worker(gpu, ngpus_per_node, args):
             eval_results = evaluator(student, device=args.gpu)
         (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
             
-        args.logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
+        logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
                 .format(current_epoch=args.current_epoch, acc1=acc1, acc5=acc5, loss=val_loss, lr=optimizer.param_groups[0]['lr']))
         if args.log_y_kl:
             info = '[Eval] Epoch={current_epoch}'.format(current_epoch=args.current_epoch)
             for l in range(1):
                 kl_div = ykl_eval_results['y_kl']['kl_at_{}'.format(l)]
                 info += ' KL@y{l}={KLy:.5f}'.format(l=l, KLy=kl_div)
-            args.logger.info(info)
+            logger.info(info)
         scheduler.step()
         is_best = acc1 > best_acc1
         # if is_best:
@@ -545,7 +566,10 @@ def main_worker(gpu, ngpus_per_node, args):
         #         Gl_1 = G_list[l-1]
         #         datafree.utils.copy_state_dict(G1=Gl_1, G2=Gl, l=l)
         best_acc1 = max(acc1, best_acc1)
-        _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
+        if args.distributed:
+            _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s-R%d.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag, args.local_rank)
+        else:
+            _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.local_rank % ngpus_per_node == 0):
             save_dict = {
@@ -561,8 +585,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
             save_checkpoint(save_dict, is_best, _best_ckpt)
-    if args.local_rank<=0:
-        args.logger.info("Best: %.4f"%best_acc1)
+    if args.local_rank<=0 or args.distributed:
+        logger.info("Best: %.4f"%best_acc1)
 
 
 def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_iter=0):
@@ -572,6 +596,10 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
     optimizer = optimizer
     student.train()
     teacher.eval()
+    if args.distributed:
+        logger = args.logger[args.local_rank]
+    else:
+        logger = args.logger
     # if args.method == 'probkd':
     #     L = len(synthesizer.G_list)
     # else:
@@ -636,7 +664,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         global_iter += 1
         if args.print_freq>0 and i % args.print_freq == 0:
             (train_acc1, train_acc5), train_loss = acc_metric.get_results(), loss_metric.get_results()
-            args.logger.info('[Train] Epoch={current_epoch} Iter={i}/{total_iters}, train_acc@1={train_acc1:.4f}, train_acc@5={train_acc5:.4f}, train_Loss={train_loss:.4f}, Lr={lr:.4f}'
+            logger.info('[Train] Epoch={current_epoch} Iter={i}/{total_iters}, train_acc@1={train_acc1:.4f}, train_acc@5={train_acc5:.4f}, train_Loss={train_loss:.4f}, Lr={lr:.4f}'
             .format(current_epoch=args.current_epoch, i=i, total_iters=kd_step, train_acc1=train_acc1, train_acc5=train_acc5, train_loss=train_loss, lr=optimizer.param_groups[0]['lr']))
             loss_metric.reset(), acc_metric.reset()
     

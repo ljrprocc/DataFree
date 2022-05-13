@@ -219,7 +219,7 @@ class ResNet(nn.Module):
             return x, feat
         return x
 
-    def forward(self, x, return_features=False):
+    def forward(self, x, return_features=False, l=0):
         return self._forward_impl(x, return_features=return_features)
 
 

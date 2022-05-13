@@ -134,7 +134,7 @@ def main_worker(gpu, ngpus_per_node, args):
             args.local_rank = args.rank * ngpus_per_node + gpu
         # print(args.rank)
         os.environ['MASTER_ADDR'] = "127.0.0.1"
-        os.environ['MASTER_PORT'] = "6666"
+        os.environ['MASTER_PORT'] = "6668"
         os.environ["RANK"] = str(args.local_rank)
         # os.environ["WORLD_SIZE"] = str(args.world_size)
         dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
@@ -189,12 +189,12 @@ def main_worker(gpu, ngpus_per_node, args):
     
         
     model = registry.get_model(args.model, num_classes=num_classes, pretrained=args.pretrained)
-    if args.dataset == 'tiny_imagenet':
-        model.avgpool = nn.AdaptiveAvgPool2d(1)
-        num_ftrs = model.fc.in_features
-        model.fc = nn.Linear(num_ftrs, 200)
-        model.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
-        model.maxpool = nn.Sequential()
+    # if args.dataset == 'tiny_imagenet':
+    #     model.avgpool = nn.AdaptiveAvgPool2d(1)
+    #     num_ftrs = model.fc.in_features
+    #     model.fc = nn.Linear(num_ftrs, 200)
+    #     model.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+    #     model.maxpool = nn.Sequential()
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -223,19 +223,19 @@ def main_worker(gpu, ngpus_per_node, args):
         # DataParallel will divide and allocate batch_size to all available GPUs
         model = torch.nn.DataParallel(model).cuda()
 
-    if args.dataset == 'tiny_imagenet':
-        pretrained_dict = torch.load('checkpoints/scratch/%s_%s.pth'%('imagenet', args.model), map_location='cpu')
+    # if args.dataset == 'tiny_imagenet':
+    #     pretrained_dict = torch.load('checkpoints/scratch/%s_%s.pth'%('imagenet', args.model), map_location='cpu')
 
-        model_dict = model.state_dict()
-        first_layer_weight = model_dict['module.conv1.weight']
-        first_layer_bias = model_dict['module.conv1.bias']
+    #     model_dict = model.state_dict()
+    #     first_layer_weight = model_dict['module.conv1.weight']
+    #     first_layer_bias = model_dict['module.conv1.bias']
 
-        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+    #     pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
 
-        model_dict.update(pretrained_dict) 
-        model_dict['module.conv1.weight'] = first_layer_weight
-        model_dict['module.conv1.bias']   = first_layer_bias
-        model.load_state_dict(model_dict)
+    #     model_dict.update(pretrained_dict) 
+    #     model_dict['module.conv1.weight'] = first_layer_weight
+    #     model_dict['module.conv1.bias']   = first_layer_bias
+    #     model.load_state_dict(model_dict)
 
     ############################################
     # Setup optimizer
@@ -306,6 +306,8 @@ def main_worker(gpu, ngpus_per_node, args):
             _best_ckpt = 'checkpoints/scratch/%s_%s_R%d.pth'%(args.dataset, args.model, args.local_rank)
         else:
             _best_ckpt = 'checkpoints/scratch/%s_%s.pth'%(args.dataset, args.model)
+        if args.resume:
+            _best_ckpt = _best_ckpt[:-4] + '_finetune.pth'
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.local_rank % ngpus_per_node == 0):
             save_checkpoint({

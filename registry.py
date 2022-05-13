@@ -332,6 +332,7 @@ def get_dataset(name: str, data_root: str='data', return_transform=False, split=
             T.Normalize( **NORMALIZE_DICT[name] )]
         )       
         # data_root = os.path.join(data_root, 'tiny-imagenet-200')
+        # print(os.path.join(data_root, 'train'))
         train_dst = datasets.ImageFolder(os.path.join(data_root, 'train'), transform=train_transform)
         val_dst = datasets.ImageFolder(os.path.join(data_root, 'val_split'), transform=val_transform)
 
