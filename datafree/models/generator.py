@@ -162,8 +162,8 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             nn.Linear(nz+n_emb, ngf*depth_factor*self.init_size[0]*self.init_size[1]),
         )
         main_module = [nn.BatchNorm2d(ngf * depth_factor), nn.Upsample(scale_factor=2)]
-        self.trans_convs = []
-        self.trans_logvar = []
+        # self.trans_convs = []
+        # self.trans_logvar = []
         for i in range(d - 1):
             main_module += [
                 nn.Conv2d(ngf * depth_factor, ngf * depth_factor // 2, 3, 1, 1, bias=False),
@@ -173,7 +173,7 @@ class DCGAN_Generator_CIFAR10(nn.Module):
             ]
             # Align the feature map channels with resnet.
            
-            self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
+            # self.trans_convs.append(nn.Conv2d(ngf * depth_factor // 2, base[d-1-i], 1, 1, 0))
            
             depth_factor = depth_factor // 2
         main_module += [
@@ -189,10 +189,10 @@ class DCGAN_Generator_CIFAR10(nn.Module):
         #     nn.LeakyReLU(slope),
         #     nn.Conv2d(base[0], base[0],3, 1, 1)
         # ))
-        self.trans_convs.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
+        # self.trans_convs.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
         # self.trans_logvar.append(nn.Conv2d(ngf, base[0], 1, 1, 0))
         self.main = nn.Sequential(*main_module)
-        self.trans_convs = nn.ModuleList(self.trans_convs)
+        # self.trans_convs = nn.ModuleList(self.trans_convs)
         # self.trans_logvar = nn.ModuleList(self.trans_logvar)
 
     def forward(self, z, l=0, y=None):

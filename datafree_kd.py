@@ -199,7 +199,7 @@ def main_worker(gpu, ngpus_per_node, args):
             # global rank among all the processes
             args.local_rank = args.rank * ngpus_per_node + gpu
         os.environ['MASTER_ADDR'] = "127.0.0.1"
-        os.environ['MASTER_PORT'] = "6667"
+        os.environ['MASTER_PORT'] = "6668"
         os.environ["RANK"] = str(args.local_rank)
         # os.environ["WORLD_SIZE"] = str(args.world_size)
         dist.init_process_group(backend=args.dist_backend, world_size=args.world_size, rank=args.local_rank, timeout=timedelta(minutes=1))
@@ -624,8 +624,11 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # for l in range(start, L):
         
         images = synthesizer.sample(l, history=history) if args.method == 'probkd' else synthesizer.sample()
-        
-        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter)
+        if args.dataset == 'cifar10':
+            alpha = 0.0001
+        else:
+            alpha = 0.00005
+        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
         
         if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
@@ -645,7 +648,8 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         if reduct == 'none':
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
-            # print(loss_s.mean(), v.mean())
+            # if args.local_rank <= 0:
+            #     print(loss_s.mean(), v.mean())
             # exit(-1)
             loss_s = (v * loss_s).sum() + g
         
