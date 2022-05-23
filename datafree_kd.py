@@ -649,7 +649,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
             # if args.local_rank <= 0:
-            #     print(loss_s.mean(), v.mean())
+            # print(loss_s.mean(), v.mean())
             # exit(-1)
             loss_s = (v * loss_s).sum() + g
         
