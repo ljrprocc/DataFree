@@ -10,13 +10,13 @@ pip install -r requirements.txt
 ```
 
 ## Our method
-Based on curriculum learning and self-paced learning. Our method is called **CuDFKD**. The result can be rephrased by scripts `scripts/probkd/`. For example, when distill ResNet18 from ResNet34 at the benchmark CIFAR10, please run the following script
+Based on curriculum learning and self-paced learning. Our method is called **CuDFKD**. The result can be rephrased by scripts `scripts/cudfkd/`. For example, when distill ResNet18 from ResNet34 at the benchmark CIFAR10, please run the following script
 
 ```
-bash scripts/probkd/probkd_cifar10_resnet34_resnet18.sh
+bash scripts/cudfkd/cudfkd_cifar10_resnet34_resnet18.sh
 ```
 
-The implementation is in `datafree/synthesis/probkd.py`.
+The implementation is in `datafree/synthesis/cudfkd.py`.
 
 ## Result on CIFAR10
 | Teacher    | Res34 | vgg11 | wrn-402 | wrn-402 | wrn-402 |
