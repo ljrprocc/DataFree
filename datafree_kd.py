@@ -29,7 +29,7 @@ import torchvision.models as models
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
 # Data Free
-parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'probkd'])
+parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'cudfkd'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--adv_type',choices=['js', 'kl'], default='js', help='Adversirial training for which divergence.')
 parser.add_argument('--cond', action="store_true", help='using class-conditional generation strategy.')
@@ -365,7 +365,7 @@ def main_worker(gpu, ngpus_per_node, args):
                  save_dir=args.save_dir, transform=ori_dataset.transform,
                  normalizer=args.normalizer, device=args.gpu, a=args.act)
 
-    elif args.method == 'probkd':
+    elif args.method == 'cudfkd':
         G_list = []
         # E_list = []
         # L = teacher.num_blocks
@@ -523,7 +523,7 @@ def main_worker(gpu, ngpus_per_node, args):
             for l in range(L):
                 vis_results = synthesizer.synthesize(l=l) # g_steps
                 # 2. Knowledge distillation
-                # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'probkd' and (not args.no_feature) else [args.kd_steps]) # # 
+                # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'cudfkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
                 global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter)
                 if l == 0:
@@ -580,7 +580,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'optimizer' : optimizer.state_dict(),
                 'scheduler': scheduler.state_dict(),
             }
-            if args.method == 'probkd':
+            if args.method == 'cudfkd':
                 # save_dict['G'] = tg.state_dict()
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
@@ -600,11 +600,11 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         logger = args.logger[args.local_rank]
     else:
         logger = args.logger
-    # if args.method == 'probkd':
+    # if args.method == 'cudfkd':
     #     L = len(synthesizer.G_list)
     # else:
     #     L = 1
-    # if args.method == 'probkd' and args.only_feature:
+    # if args.method == 'cudfkd' and args.only_feature:
     #     start = args.depth
     # else:
     #     start = 0
@@ -623,7 +623,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # datafree.utils.set_requires_grad(student, True)                   
         # for l in range(start, L):
         
-        images = synthesizer.sample(l, history=history) if args.method == 'probkd' else synthesizer.sample()
+        images = synthesizer.sample(l, history=history) if args.method == 'cudfkd' else synthesizer.sample()
         if args.dataset == 'cifar10':
             alpha = 0.0001
         else:

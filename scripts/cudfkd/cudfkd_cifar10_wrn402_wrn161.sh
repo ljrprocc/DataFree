@@ -1,5 +1,5 @@
 python datafree_kd.py \
---method probkd \
+--method cudfkd \
 --dataset cifar10 \
 --batch_size 1024 \
 --teacher wrn40_2 \
@@ -21,8 +21,8 @@ python datafree_kd.py \
 --gpu 4 \
 --seed 0 \
 --bn 1 \
---save_dir run/probkd \
---log_tag probkd_L2_line78_2 \
+--save_dir run/cudfkd \
+--log_tag cudfkd_L2_line78_2 \
 --data_root ../cifar10/ \
 --curr_option curr_log \
 --lambda_0 2. \

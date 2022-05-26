@@ -1,5 +1,5 @@
 python datafree_kd.py \
---method probkd \
+--method cudfkd \
 --dataset cifar100 \
 --batch_size 1024 \
 --teacher wrn40_2 \
@@ -21,8 +21,8 @@ python datafree_kd.py \
 --gpu 0 \
 --seed 0 \
 --bn 1 \
---save_dir run/probkd_test \
---log_tag probkd_L2_line18_2 \
+--save_dir run/cudfkd_test \
+--log_tag cudfkd_L2_line18_2 \
 --begin_fraction 0.33333 \
 --end_fraction 0.75 \
 --grad_adv 0.2 \
@@ -32,4 +32,4 @@ python datafree_kd.py \
 --curr_option curr_log \
 --lambda_0 1. \
 --loss kl
-# --resume /data/lijingru/DataFree/checkpoints/datafree-probkd/cifar10-resnet34-resnet18--probkd_dcgan_L2_adv_testrelu2.pth
+# --resume /data/lijingru/DataFree/checkpoints/datafree-cudfkd/cifar10-resnet34-resnet18--cudfkd_dcgan_L2_adv_testrelu2.pth
