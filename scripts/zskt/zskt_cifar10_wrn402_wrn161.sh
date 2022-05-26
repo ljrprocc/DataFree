@@ -18,4 +18,4 @@ python datafree_kd.py \
 --balance 0 \
 --gpu 0 \
 --seed 0 \
---data_root /data/lijingru/cifar10/
+--data_root ../cifar10/

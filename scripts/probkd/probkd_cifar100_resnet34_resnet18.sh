@@ -23,7 +23,7 @@ python datafree_kd.py \
 --bn 1 \
 --save_dir run/probkd_test \
 --log_tag probkd_L2_line20 \
---data_root /data/lijingru/cifar100/ \
+--data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \

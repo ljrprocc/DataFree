@@ -26,7 +26,7 @@ python datafree_kd.py \
 --begin_fraction 0.33333 \
 --end_fraction 0.75 \
 --grad_adv 0.2 \
---data_root /data/lijingru/cifar100/ \
+--data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \

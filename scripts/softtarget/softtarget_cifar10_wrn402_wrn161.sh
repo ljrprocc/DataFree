@@ -15,4 +15,4 @@ python datafree_kd.py \
 --seed 0 \
 --save_dir run/softtarget \
 --log_tag softtarget \
---data_root /data/lijingru/cifar10/
+--data_root ../cifar10/

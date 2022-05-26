@@ -17,4 +17,4 @@ python datafree_kd.py \
 --seed 0 \
 --save_dir run/zskd \
 --log_tag zskd \
---data_root /data/lijingru/cifar10/
+--data_root ../cifar10/

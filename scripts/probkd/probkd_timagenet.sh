@@ -25,7 +25,7 @@ CUDA_VISIBLE_DEVICES=4,5 python datafree_kd.py \
 --bn 1 \
 --save_dir run/probkd_test \
 --log_tag probkd_L3_line8 \
---data_root /data/lijingru/timagenet/tiny-imagenet-200/ \
+--data_root ../timagenet/tiny-imagenet-200/ \
 --multiprocessing_distributed \
 --world_size 2 \
 --rank 0 \

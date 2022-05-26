@@ -21,7 +21,7 @@ python datafree_kd.py \
 --bn 1 \
 --save_dir run/probkd_nonhistory_test \
 --log_tag probkd_L2_74_5 \
---data_root /data/lijingru/cifar10/ \
+--data_root ../cifar10/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \
