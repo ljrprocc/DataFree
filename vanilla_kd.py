@@ -88,6 +88,8 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
                     help='use pre-trained model')
 parser.add_argument('--curr_option', type=str, default='spl')
 parser.add_argument('--lambda_0', type=float, default=1.)
+parser.add_argument('--open_ratio', action="store_true", help='ratio flag.')
+parser.add_argument('--ratio', type=float, default=1.0, help='ratio for different confidence of samples. in [0.2, 1.0]')
 best_acc1 = 0
 
 def main():
@@ -179,13 +181,13 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     # Setup dataset
     ############################################
-    num_classes, ori_dataset, val_dataset = registry.get_dataset(name=args.dataset, data_root=args.data_root)
+    num_classes, ori_dataset, val_dataset = registry.get_dataset(name=args.dataset, data_root=args.data_root, ratio=args.open_ratio, teacher=args.teacher, ratio_num=args.ratio, gpu=args.gpu)
     if os.path.isdir(args.transfer_set):
         train_dataset = datafree.utils.UnlabeledImageDataset(args.transfer_set, transform=ori_dataset.transform)
         args.transfer_set = args.transfer_set.strip('/').replace('/', '-')
     else:
-        _, train_dataset, _ = registry.get_dataset(name=args.transfer_set, data_root=args.data_root)
-    train_dataset.transforms = train_dataset.transform = ori_dataset.transform
+        _, train_dataset, _ = registry.get_dataset(name=args.transfer_set, data_root=args.data_root, ratio=args.open_ratio, teacher=args.teacher, ratio_num=args.ratio, gpu=args.gpu)
+    # train_dataset.transforms = train_dataset.transform = ori_dataset.transform
     if args.local_rank <= 0:
         print(train_dataset)
     cudnn.benchmark = True
@@ -205,7 +207,7 @@ def main_worker(gpu, ngpus_per_node, args):
     ############################################
     # Setup models
     ############################################
-    if args.dataset == 'imagenet' or 'tiny_imagenet':
+    if args.dataset == 'imagenet' or args.dataset == 'tiny_imagenet':
         if args.teacher.startswith('resnet'):
             args.teacher = args.teacher + '_imagenet'
         if args.student.startswith('resnet'):
@@ -311,7 +313,7 @@ def main_worker(gpu, ngpus_per_node, args):
         args.current_epoch=epoch
         train( train_loader, [student, teacher], optimizer, epoch, logger, args)
         student.eval()
-        eval_results = evaluator(student, device=args.local_rank)
+        eval_results = evaluator(student, device=args.local_rank if args.distributed else args.gpu)
         (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
         logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
                 .format(current_epoch=args.current_epoch, acc1=acc1, acc5=acc5, loss=val_loss, lr=optimizer.param_groups[0]['lr']))

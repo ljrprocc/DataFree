@@ -1,0 +1,21 @@
+python datafree_kd.py \
+--method pretrained \
+--pretrained_mode glow \
+--pretrained_G_weight /data1/lijingru/pretrained_models/glow/glow_affine_coupling.pt \
+--dataset cifar10 \
+--batch_size 256 \
+--teacher resnet34 \
+--student resnet18 \
+--lr 0.1 \
+--epochs 250 \
+--kd_steps_interval 5 \
+--ep_steps 400 \
+--g_steps_interval 1 \
+--T 20 \
+--act 0.001 \
+--balance 20 \
+--gpu 1 \
+--seed 0 \
+--log_tag pretrained_glow \
+--curr_option none \
+--data_root /data/lijingru/cifar10/

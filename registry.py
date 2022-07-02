@@ -12,7 +12,9 @@ import torch
 import torchvision
 import datafree
 import torch.nn as nn 
+import numpy as np
 from PIL import Image
+import tqdm
 
 NORMALIZE_DICT = {
     'mnist':    dict( mean=(0.1307,),                std=(0.3081,) ),
@@ -78,6 +80,100 @@ SEGMENTATION_MODEL_DICT = {
 }
 
 
+class RatioCIFAR10(torch.utils.data.Dataset):
+    def __init__(self, dst, model, ratio=1.0, gpu=None):
+        super(RatioCIFAR10, self).__init__()
+        self.ratio = ratio
+        self.dst = dst
+        self.teacher_path = os.path.join('/data/lijingru/DataFree/checkpoints/scratch/', 'cifar10_{}.pth'.format(model))
+        ckpt = torch.load(self.teacher_path, map_location='cpu')['state_dict']
+        self.teacher = model
+        self.model = MODEL_DICT[model](num_classes=10)
+        self.model.load_state_dict(ckpt)
+        self.model.eval()
+        self.gpu = gpu
+        if gpu is not None:
+            self.model.to(gpu)
+        self.x, self.y, self.indice = self._confidence()
+
+
+    def _confidence(self):
+        
+        res = {
+            'x': [],
+            'y': [],
+            'ent': []
+        }
+        dataloader = torch.utils.data.DataLoader(self.dst, batch_size=128, shuffle=False, num_workers=8, pin_memory=True)
+        for x,y in tqdm.tqdm(dataloader, desc='Updating Confidence indices...'):
+            output_logit = self.model(x.to(self.gpu))
+            p = (output_logit).softmax(1)
+            ents = (p * p.log()).sum(1)
+            res['x'] += list(x)
+            res['y'] += list(y)
+            res['ent'] += list(ents.detach().cpu())
+        
+        # print(len(res['ent']), len(res['x']), len(res['y']))
+        ent = torch.FloatTensor(res['ent'])
+        # print(type(res['x']))
+        x = torch.cat([w.unsqueeze(0) for w in res['x']], 0)
+        y = torch.LongTensor(res['y'])
+        # print(x.shape, y.shape)
+        _, indice = torch.sort(ent)
+        index_all = int(self.ratio * len(self.dst))
+        print('Sample {} samples'.format(index_all))
+        # print(indice)
+        select = torch.randint(0, index_all, (int(0.2 * len(self.dst)), ))
+        # res_x = [res['x'][i] for i in indice[select]]
+        # res_y = [res['y'][i] for i in indice[select]]
+
+        # res_x = [res['x'][i] for i in indice[-index_all:]]
+        # res_y = [res['y'][i] for i in indice[-index_all:]]
+        res_x = x[indice[-index_all:]]
+        res_y = y[indice[-index_all:]]
+        # print([res['ent'][i] for i in indice[:index_all]])
+        # print('Finished.')
+
+        # df = pd.DataFrame(res)
+        # df = df.sort_values(by=['ent'])
+        
+
+        return res_x, res_y, indice
+
+    def __getitem__(self, index: int):
+        x = self.x[index]
+        y = self.y[index]
+        # print(x.max(), x.min(), x.shape)
+        # exit(-1)
+        
+        return x, y
+        
+    def __len__(self):
+        return len(self.x)
+
+
+class RatioCIFAR10_new(datasets.CIFAR10):
+    def __init__(self, root: str, train: bool = True, transform=None, target_transform=None, download: bool = False, ratio : float = 1.0, sort_index: str = '') -> None:
+        super().__init__(root, train, transform, target_transform, download)
+        self.ratio = ratio
+        # print(sort_index)
+        self.sort_index = np.load(sort_index)
+        select = int(0.5 * len(self.sort_index))
+        real_length = int(ratio * len(self.sort_index))
+        sort_index = self.sort_index[:real_length]
+        select = np.random.randint(0, real_length, select)
+        data_index = sort_index[select]
+        self.data = self.data[data_index]
+        self.targets = [self.targets[w] for w in data_index]
+
+    def __getitem__(self, index: int):
+        return super().__getitem__(index)
+
+    def __len__(self) -> int:
+        return super().__len__()
+
+
+
 def get_model(name: str, num_classes, pretrained=False, **kwargs):
     if 'imagenet' in name:
         model = IMAGENET_MODEL_DICT[name](pretrained=False)
@@ -90,7 +186,7 @@ def get_model(name: str, num_classes, pretrained=False, **kwargs):
     return model 
 
 
-def get_dataset(name: str, data_root: str='data', return_transform=False, split=['A', 'B', 'C', 'D']):
+def get_dataset(name: str, data_root: str='data', return_transform=False, split=['A', 'B', 'C', 'D'], ratio=False, teacher='resnet34', ratio_num=1., gpu=None):
     name = name.lower()
     data_root = os.path.expanduser( data_root )
 
@@ -126,6 +222,8 @@ def get_dataset(name: str, data_root: str='data', return_transform=False, split=
         # data_root = os.path.join( data_root, 'torchdata' ) 
         train_dst = datasets.CIFAR10(data_root, train=True, download=True, transform=train_transform)
         val_dst = datasets.CIFAR10(data_root, train=False, download=True, transform=val_transform)
+        if ratio:
+            train_dst = RatioCIFAR10_new(data_root, train=True, download=True, transform=train_transform, sort_index='./checkpoints/indice.npy', ratio=ratio_num)
     elif name=='c10+p365':
         num_classes = 10
         train_transform = T.Compose([

@@ -25,11 +25,34 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
+import json
+
+from guided_diffusion import dist_util, logger
+from guided_diffusion.script_util import (
+    NUM_CLASSES,
+    model_and_diffusion_defaults,
+    create_model_and_diffusion,
+    add_dict_to_argparser,
+    args_to_dict,
+)
+
+def create_argparser():
+    defaults = dict(
+        clip_denoised=True,
+        num_samples=10000,
+        batch_size=16,
+        use_ddim=False,
+        model_path="",
+    )
+    defaults.update(model_and_diffusion_defaults())
+    # parser = argparse.ArgumentParser()
+    # add_dict_to_argparser(parser, defaults)
+    return defaults
 
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
 # Data Free
-parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'cudfkd'])
+parser.add_argument('--method', required=True, choices=['zskt', 'dfad', 'dafl', 'deepinv', 'dfq', 'cmi', 'zskd', 'dfme', 'softtarget', 'cudfkd', 'pretrained'])
 parser.add_argument('--adv', default=0, type=float, help='scaling factor for adversarial distillation')
 parser.add_argument('--adv_type',choices=['js', 'kl'], default='js', help='Adversirial training for which divergence.')
 parser.add_argument('--cond', action="store_true", help='using class-conditional generation strategy.')
@@ -101,6 +124,11 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 
 parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
+
+# pretrained generative model testing
+# parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
+parser.add_argument('--pretrained_mode', type=str, default='gan', choices=['gan', 'vae', 'glow', 'diffusion', 'sgm'])
+parser.add_argument('--pretrained_G_weight', type=str, default='', help='The path to the pretrained generative models.')
 
 # Device
 parser.add_argument('--gpu', default=None, type=int,
@@ -434,6 +462,53 @@ def main_worker(gpu, ngpus_per_node, args):
             bn=args.bn,
             T=args.T
         )
+
+    elif args.method == 'pretrained':
+        nz = 100
+        kd_steps = args.kd_steps_interval.split(',')
+        kd_steps = [int(x) for x in kd_steps]
+        # g_steps = args.g_steps_interval.split(',')
+        # g_steps = [int(x) for x in g_steps]
+        if args.pretrained_mode == 'gan':
+            G = datafree.models.generator.pretrained_DCGAN_Generator(ngpu=1, nz=nz, ngf=64)
+        elif args.pretrained_mode == 'glow':
+            hyper_para_path = '/'.join(args.pretrained_G_weight.split('/')[:-1])+'/hparams.json'
+            with open(hyper_para_path) as json_file:  
+                hparams = json.load(json_file)
+
+            G = datafree.models.glow.glow_g.Glow((32, 32, 3), hparams['hidden_channels'], hparams['K'], hparams['L'], hparams['actnorm_scale'], hparams['flow_permutation'], hparams['flow_coupling'], hparams['LU_decomposed'], num_classes, hparams['learn_top'], hparams['y_condition'])
+        elif args.pretrained_mode == 'diffusion':
+            # new_args = create_argparser().parse_args()
+            args_dict = model_and_diffusion_defaults()
+            args_dict['image_size'] = 32
+            args_dict['num_channels'] = 128
+            args_dict['num_res_blocks'] = 3
+            args_dict['learn_sigma'] = True
+            args_dict['diffusion_steps'] = 4000
+            args_dict['noise_schedule'] = 'cosine'
+            args_dict['use_kl'] = True
+            args_dict['dropout'] = 0.3
+            args_dict['timestep_respacing'] = 'ddim200'
+
+            
+            model, diffusion = create_model_and_diffusion( **args_dict)
+            G = model
+
+        print('Loading pretrained generator...')
+        G.load_state_dict(torch.load(args.pretrained_G_weight, map_location='cpu'))
+        synthesizer = datafree.synthesis.PretrainedGenerativeSynthesizer(
+            teacher=teacher,
+            student=student,
+            generator=G if args.pretrained_mode != 'diffusion' else (G, diffusion),
+            nz=nz, 
+            img_size=32,
+            synthesis_batch_size=args.batch_size,
+            sample_batch_size=args.batch_size,
+            normalizer=args.normalizer,
+            device=args.gpu,
+            mode=args.pretrained_mode,
+            use_ddim=True
+        )
     else: raise NotImplementedError
         
     ############################################
@@ -497,18 +572,8 @@ def main_worker(gpu, ngpus_per_node, args):
     # Train Loop
     ############################################
     global_iter = 0
-    # with torch.no_grad():
-    # #    image = synthesizer.sample()
-    #     xx = torch.ones(args.synthesis_batch_size, 3, 32, 32, device=args.gpu)
-    #     # print('sfdlkaj')
-    #     # xx = torch.FloatTensor(args.synthesis_batch_size, 3, 32, 32).uniform_(-1, 1).to(args.gpu)
-    #     # image = synthesizer.normalizer(image)
-        
-    #     t_outs = teacher(xx)
-    #     s_outs = student(xx)
-    #     loss_s = criterion(s_outs.detach(), t_outs.detach())
-    #     g, v = datafree.datasets.utils.curr_v(loss_s, args.lambda_0, args.curr_option.split('_')[1])
     g, v = torch.zeros(1), torch.zeros(args.batch_size)
+    L = 1
 
     for epoch in range(args.start_epoch, args.epochs):
         #if args.distributed:
@@ -521,24 +586,27 @@ def main_worker(gpu, ngpus_per_node, args):
             # 1. Data synthesis
             vis_result = None
             for l in range(L):
-                vis_results = synthesizer.synthesize(l=l) # g_steps
+                if args.method != 'pretrained':
+                    vis_result = synthesizer.synthesize(l=l) # g_steps
                 # 2. Knowledge distillation
                 # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'cudfkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
-                global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter)
-                if l == 0:
-                    vis_result = vis_results
+                global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter, save=(k==0))
+                # if l == 0:
+                #     vis_result = vis_results
 
         # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
         # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
             # synthesizer.adv += 0.5  # For cifar10
             # synthesizer.adv += 0.3  # For cifar100
-        if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
-            synthesizer.adv += args.grad_adv
-
-        for vis_name, vis_image in vis_result.items():
-            if vis_image.shape[1] == 3:
-                datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
+        if args.method == 'cudfkd':
+            if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
+                synthesizer.adv += args.grad_adv
+        
+        if vis_result is not None:
+            for vis_name, vis_image in vis_result.items():
+                if vis_image.shape[1] == 3:
+                    datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
         
         student.eval()
         if args.log_y_kl:
@@ -589,7 +657,7 @@ def main_worker(gpu, ngpus_per_node, args):
         logger.info("Best: %.4f"%best_acc1)
 
 
-def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_iter=0):
+def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_iter=0, save=False):
     loss_metric = datafree.metrics.RunningLoss(datafree.criterions.KLDiv(reduction='sum'))
     acc_metric = datafree.metrics.TopkAccuracy(topk=(1,5))
     student, teacher = model
@@ -600,23 +668,6 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         logger = args.logger[args.local_rank]
     else:
         logger = args.logger
-    # if args.method == 'cudfkd':
-    #     L = len(synthesizer.G_list)
-    # else:
-    #     L = 1
-    # if args.method == 'cudfkd' and args.only_feature:
-    #     start = args.depth
-    # else:
-    #     start = 0
-    # datafree.utils.set_requires_grad(student, True)
-    # for l, kd_step in enumerate(kd_steps):
-        # if l == 1:
-        #     datafree.utils.set_requires_grad(student.conv1, False)
-        #     datafree.utils.set_requires_grad(student.bn1, False)
-        #     datafree.utils.set_requires_grad(student.layer1, False)
-        # if l == 2:
-        #     datafree.utils.set_requires_grad(student.layer2, False)
-    # global_iter = epoch * (args.ep_steps//kd_steps[0]) * (sum(kd_steps[:args.L]))
     history = False
     for i in range(kd_step):
         loss_s = 0.0
@@ -624,6 +675,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # for l in range(start, L):
         
         images = synthesizer.sample(l, history=history) if args.method == 'cudfkd' else synthesizer.sample()
+        
         if args.dataset == 'cifar10':
             alpha = 0.0001
         else:
@@ -632,6 +684,9 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         
         if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
+
+        if args.method == 'pretrained' and i == 0 and save:
+            datafree.utils.save_image_batch( images, 'checkpoints/datafree-%s/%s.png'%(args.method, args.log_tag) )
         # print(images.max(), images.min()) 
         if args.gpu is not None:
             images = images.cuda(args.gpu, non_blocking=True)
@@ -644,6 +699,10 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
                 reduct = 'none'
             s_out = student(images.detach(), l=l)
             loss_s = criterion(s_out, t_out.detach())
+            # if torch.isnan(loss_s):
+            #     print(images)
+                # exit(-1)
+            # print(loss_s.item())
 
         if reduct == 'none':
             with torch.no_grad():

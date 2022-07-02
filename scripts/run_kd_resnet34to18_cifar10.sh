@@ -1,0 +1,1 @@
+python vanilla_kd.py --dataset cifar10 --teacher resnet34 --student resnet18 -j 8 --data_root ../cifar10/ --batch_size 512 --transfer_set cifar10 --curr_option none --T 4 --log_tag vanilla_kd_ratio_9_selected --gpu 1 --open_ratio --ratio 0.65
