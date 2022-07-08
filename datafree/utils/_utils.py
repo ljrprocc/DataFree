@@ -426,6 +426,20 @@ class DataIter(object):
             data = next( self._iter )
         return data
 
+class UnlabelBufferDataset(Dataset):
+    def __init__(self, buffer, transform):
+        self.buffer = buffer
+        self.transform = transform
+        # print(self.transform)
+
+    def __getitem__(self, index):
+        this_data = self.buffer[index]
+        return self.transform(this_data)
+
+    def __len__(self):
+        return len(self.buffer)
+
+
 @contextmanager
 def dummy_ctx(*args, **kwds):
     try:

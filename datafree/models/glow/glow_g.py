@@ -108,13 +108,14 @@ class FlowStep(nn.Module):
             h = self.block(z1)
             shift, scale = split_feature(h, "cross")
             scale = torch.sigmoid(scale + 2.0)
-            z2 = z2 / scale
+            z2 = z2 / (scale + 1e-8)
             z2 = z2 - shift
             logdet = -torch.sum(torch.log(scale + 1e-8), dim=[1, 2, 3]) + logdet
 
         z = torch.cat((z1, z2), dim=1)
+        print(input.max(), input.min())
         if torch.isnan(z.mean()):
-            print(z1.max(), z1.min())
+            
             exit(-1)
 
 
@@ -302,8 +303,11 @@ class Glow(nn.Module):
             if z is None:
                 mean, logs = self.prior(z, y_onehot)
                 z = gaussian_sample(mean, logs, temperature)
+                # print(z.shape, mean, logs)
+                # exit(-1)
             
             x = self.flow(z, temperature=temperature, reverse=True)
+            
             # if torch.isnan(x.mean()):
             #     print(z, x)
             #     exit(-1)

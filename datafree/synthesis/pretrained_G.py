@@ -1,10 +1,11 @@
 import torch
 
 from .base import BaseSynthesis
-from guided_diffusion import dist_util, logger
+from datafree.utils import UnlabelBufferDataset, ImagePool, DataIter
+import torchvision.transforms as T
 
 class PretrainedGenerativeSynthesizer(BaseSynthesis):
-    def __init__(self, teacher, student, generator, nz, img_size, synthesis_batch_size=128, sample_batch_size=128, normalizer=None, device='cpu', mode='gan', use_ddim=False):
+    def __init__(self, teacher, student, generator, nz, img_size, synthesis_batch_size=128, sample_batch_size=128, normalizer=None, device='cpu', mode='gan', use_ddim=False, replay_buffer=None, transform=None, distributed=False):
         super(PretrainedGenerativeSynthesizer, self).__init__(teacher, student)
         self.mode = mode
         # assert len(img_size)==3, "image size should be a 3-dimension tuple"
@@ -16,13 +17,27 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
         self.sample_batch_size = sample_batch_size
 
         self.generator = generator
-        if self.mode == 'diffusion':
-            self.generator, self.diffusion = generator
+        # if self.mode == 'diffusion':
+        #     self.generator, self.diffusion = generator
         self.device = device
         self.use_ddim = use_ddim
+        self.replay_buffer = replay_buffer
+        self.transform = transform
+        self.distributed = distributed
 
-    def synthesize(self):
-        raise NotImplementedError('Should not update the generator')
+    def synthesize(self, l=None):
+        if self.mode == 'ebm' or self.mode == 'diffusion':
+            # transform = T.Compose(self.transform.transforms[1:])
+            dst = UnlabelBufferDataset(self.replay_buffer, transform=self.transform)
+            if self.distributed:
+                train_sampler = torch.utils.data.distributed.DistributedSampler(dst) if self.distributed else None
+            else:
+                train_sampler = None
+            loader = torch.utils.data.DataLoader(
+                dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
+                num_workers=4, pin_memory=True, sampler=train_sampler)
+            self.data_iter = DataIter(loader)
+
     
     @torch.no_grad()
     def sample(self):
@@ -32,8 +47,9 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
         # elif self.mode == 'diffusion':
         #     print(type(self.generator))
         #     self.generator, self.diffusion = self.generator
-        self.generator = self.generator.to(self.device)
-        self.generator.eval()
+        if self.generator is not None:
+            self.generator = self.generator.to(self.device)
+            self.generator.eval()
         if self.mode == 'gan':
             z = torch.randn( size=(self.sample_batch_size, self.nz), device=self.device )
             inputs = self.generator(z)
@@ -41,15 +57,18 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
             # exit(-1)
             return inputs
         elif self.mode == 'glow':
-            x_intermideate = self.generator(temperature=1, reverse=True)
+            z = torch.randn( size=(self.sample_batch_size, 48, 4, 4), device=self.device )
+            x_intermideate = self.generator(z=z, temperature=1, reverse=True)
             
 
             # output = torch.sigmoid(x_intermideate)
-            # if torch.isnan(output.mean()):
-            #     print(output, x_intermideate)
-            #     exit(-1)
-            output = x_intermideate.clamp_(-1, 1)
-            output = output / 2 + 0.5
+            if torch.isnan(output.mean()):
+                print(output, x_intermideate)
+                exit(-1)
+            output = x_intermideate.clamp_(-0.5, 0.5)
+            output = output + 0.5
+            # print(output.shape)
+            # exit(-1)
             # if torch.isnan(output.mean()):
             #     print(x_intermideate)
             #     exit(-1)
@@ -57,15 +76,23 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
             # exit(-1)
             return output
         elif self.mode == 'diffusion':
-            sample_fn = (
-                self.diffusion.p_sample_loop if not self.use_ddim else self.diffusion.ddim_sample_loop
-            )
-            sample = sample_fn(
-                self.generator,
-                (self.sample_batch_size, 3, self.img_size, self.img_size),
-                clip_denoised=True,
-                model_kwargs={}
-            )
-            sample = (sample + 1) / 2
-            sample = torch.clamp(sample, 0, 1)
-            return sample
+            # Online sampling, maybe slow.
+            # sample_fn = (
+            #     self.diffusion.p_sample_loop if not self.use_ddim else self.diffusion.ddim_sample_loop
+            # )
+            # sample = sample_fn(
+            #     self.generator,
+            #     (self.sample_batch_size, 3, self.img_size, self.img_size),
+            #     clip_denoised=True,
+            #     model_kwargs={}
+            # )
+            # sample = (sample + 1) / 2
+            # sample = torch.clamp(sample, 0, 1)
+            # return sample
+            # Offline sampling
+
+            return self.data_iter.next()
+
+        elif self.mode == 'ebm' or self.mode == 'ebm':
+            # UnlabelBufferDataset(self.replay_buffer, )
+            return self.data_iter.next()

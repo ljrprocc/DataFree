@@ -27,13 +27,13 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 import json
 
-from guided_diffusion import dist_util, logger
-from guided_diffusion.script_util import (
-    NUM_CLASSES,
+# from guided_diffusion.script_util import (
+#     model_and_diffusion_defaults,
+#     create_model_and_diffusion,
+# )
+from improved_diffusion.script_util import(
     model_and_diffusion_defaults,
-    create_model_and_diffusion,
-    add_dict_to_argparser,
-    args_to_dict,
+    create_model_and_diffusion
 )
 
 def create_argparser():
@@ -127,7 +127,7 @@ parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl
 
 # pretrained generative model testing
 # parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
-parser.add_argument('--pretrained_mode', type=str, default='gan', choices=['gan', 'vae', 'glow', 'diffusion', 'sgm'])
+parser.add_argument('--pretrained_mode', type=str, default='gan', choices=['gan', 'vae', 'glow', 'diffusion', 'sgm', 'ebm'])
 parser.add_argument('--pretrained_G_weight', type=str, default='', help='The path to the pretrained generative models.')
 
 # Device
@@ -214,6 +214,8 @@ def main_worker(gpu, ngpus_per_node, args):
     args.gpu = gpu
     if args.distributed:
         args.local_rank = gpu
+    else:
+        args.local_rank = -1
     ############################################
     # GPU and FP16
     ############################################
@@ -467,39 +469,66 @@ def main_worker(gpu, ngpus_per_node, args):
         nz = 100
         kd_steps = args.kd_steps_interval.split(',')
         kd_steps = [int(x) for x in kd_steps]
+        replay_buffer = None
         # g_steps = args.g_steps_interval.split(',')
         # g_steps = [int(x) for x in g_steps]
         if args.pretrained_mode == 'gan':
             G = datafree.models.generator.pretrained_DCGAN_Generator(ngpu=1, nz=nz, ngf=64)
+            ckpt = torch.load(args.pretrained_G_weight, map_location='cpu')
         elif args.pretrained_mode == 'glow':
             hyper_para_path = '/'.join(args.pretrained_G_weight.split('/')[:-1])+'/hparams.json'
             with open(hyper_para_path) as json_file:  
                 hparams = json.load(json_file)
+            
 
             G = datafree.models.glow.glow_g.Glow((32, 32, 3), hparams['hidden_channels'], hparams['K'], hparams['L'], hparams['actnorm_scale'], hparams['flow_permutation'], hparams['flow_coupling'], hparams['LU_decomposed'], num_classes, hparams['learn_top'], hparams['y_condition'])
+            ckpt = torch.load(args.pretrained_G_weight, map_location='cpu')
         elif args.pretrained_mode == 'diffusion':
             # new_args = create_argparser().parse_args()
-            args_dict = model_and_diffusion_defaults()
-            args_dict['image_size'] = 32
-            args_dict['num_channels'] = 128
-            args_dict['num_res_blocks'] = 3
-            args_dict['learn_sigma'] = True
-            args_dict['diffusion_steps'] = 4000
-            args_dict['noise_schedule'] = 'cosine'
-            args_dict['use_kl'] = True
-            args_dict['dropout'] = 0.3
-            args_dict['timestep_respacing'] = 'ddim200'
-
+            # online sample
+            # TIPS: although using DDIM to accelerate sampling speed, 
+            # it's still extremely slow
+            # args_dict = model_and_diffusion_defaults()
+            # args_dict['image_size'] = 32
+            # args_dict['num_channels'] = 128
+            # args_dict['num_res_blocks'] = 3
+            # args_dict['learn_sigma'] = True
+            # args_dict['diffusion_steps'] = 4000
+            # args_dict['noise_schedule'] = 'cosine'
+            # args_dict['use_kl'] = True
+            # args_dict['dropout'] = 0.3
+            # args_dict['timestep_respacing'] = 'ddim250'         
+            # model, diffusion = create_model_and_diffusion( **args_dict)
+            # G = model
+            # ckpt = torch.load(args.pretrained_G_weight, map_location='cpu')
+            # offline sample
+            G = None
+            replay_buffer = np.load(args.pretrained_G_weight)
+            from PIL import Image
+            import torchvision.transforms as T
             
-            model, diffusion = create_model_and_diffusion( **args_dict)
-            G = model
+            replay_buffer = [Image.fromarray(x) for x in replay_buffer['arr_0']]
+            # replay_buffer = torch.stack(img, 0)
+            
+        elif args.pretrained_mode == 'ebm':
+            # Langevin Dynamics can be too slow..
+            # We only support 
+            from PIL import Image
+            G = None
+            ckpt = torch.load(args.pretrained_G_weight)
+            replay_buffer = ckpt['replay_buffer']
+            replay_buffer = (replay_buffer + 1) / 2
+            replay_buffer = replay_buffer.clamp_(0, 1) * 255
+            replay_buffer = [Image.fromarray(x) for x in replay_buffer.permute(0,2,3,1).numpy().astype(np.uint8)]
+
 
         print('Loading pretrained generator...')
-        G.load_state_dict(torch.load(args.pretrained_G_weight, map_location='cpu'))
+        if args.pretrained_mode != 'ebm' and args.pretrained_mode != 'diffusion':
+            G.load_state_dict(ckpt)
         synthesizer = datafree.synthesis.PretrainedGenerativeSynthesizer(
             teacher=teacher,
             student=student,
-            generator=G if args.pretrained_mode != 'diffusion' else (G, diffusion),
+            generator=G,
             nz=nz, 
             img_size=32,
             synthesis_batch_size=args.batch_size,
@@ -507,7 +536,9 @@ def main_worker(gpu, ngpus_per_node, args):
             normalizer=args.normalizer,
             device=args.gpu,
             mode=args.pretrained_mode,
-            use_ddim=True
+            use_ddim=True,
+            replay_buffer=replay_buffer,
+            transform = ori_dataset.transform
         )
     else: raise NotImplementedError
         
@@ -586,8 +617,8 @@ def main_worker(gpu, ngpus_per_node, args):
             # 1. Data synthesis
             vis_result = None
             for l in range(L):
-                if args.method != 'pretrained':
-                    vis_result = synthesizer.synthesize(l=l) # g_steps
+                # if args.method != 'pretrained':
+                vis_result = synthesizer.synthesize(l=l) # g_steps
                 # 2. Knowledge distillation
                 # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'cudfkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
@@ -668,10 +699,10 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         logger = args.logger[args.local_rank]
     else:
         logger = args.logger
-    history = False
+    history = (args.method == 'deepinv') or (args.method == 'cmi') or (args.method == 'pretrained' and (args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm'))
     for i in range(kd_step):
         loss_s = 0.0
-        # datafree.utils.set_requires_grad(student, True)                   
+        # datafree.utils.set_requires_grad(student, True)    
         # for l in range(start, L):
         
         images = synthesizer.sample(l, history=history) if args.method == 'cudfkd' else synthesizer.sample()
@@ -681,12 +712,16 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         else:
             alpha = 0.00005
         lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
-        
-        if l == 0 and not history:
-            images = synthesizer.normalizer(images.detach())
 
         if args.method == 'pretrained' and i == 0 and save:
-            datafree.utils.save_image_batch( images, 'checkpoints/datafree-%s/%s.png'%(args.method, args.log_tag) )
+            if args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm':
+                vis = synthesizer.normalizer(images, reverse=True)
+            else:
+                vis = images
+            datafree.utils.save_image_batch( vis.detach(), 'checkpoints/datafree-%s/%s.png'%(args.method, args.log_tag) )
+        # print(history)
+        if l == 0 and not history:
+            images = synthesizer.normalizer(images.detach())
         # print(images.max(), images.min()) 
         if args.gpu is not None:
             images = images.cuda(args.gpu, non_blocking=True)

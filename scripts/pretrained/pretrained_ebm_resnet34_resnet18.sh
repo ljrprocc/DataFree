@@ -1,7 +1,7 @@
 python datafree_kd.py \
 --method pretrained \
---pretrained_mode diffusion \
---pretrained_G_weight /tmp/openai-2022-07-02-15-15-09-089368/samples_100000x32x32x3.npz \
+--pretrained_mode ebm \
+--pretrained_G_weight /data1/lijingru/JEMPP/runs/JEMPP/cifar10/0706093019@JEMPP-n_steps=10-in_steps=5-pyld_lr=0.2@43419/best_valid_ckpt.pt_eval_uncond_samples_0708024016/buffer.pt \
 --dataset cifar10 \
 --batch_size 256 \
 --teacher vgg11 \
@@ -14,8 +14,8 @@ python datafree_kd.py \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 0 \
+--gpu 4 \
 --seed 0 \
---log_tag pretrained_diffusion_offline \
+--log_tag pretrained_ebm_offline \
 --curr_option none \
 --data_root /data/lijingru/cifar10/ 

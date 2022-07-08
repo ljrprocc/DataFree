@@ -4,7 +4,7 @@ python datafree_kd.py \
 --pretrained_G_weight /data1/lijingru/gan-vae-pretrained-pytorch/cifar10_dcgan/weights/netG_epoch_199.pth \
 --dataset cifar10 \
 --batch_size 256 \
---teacher resnet34 \
+--teacher vgg11 \
 --student resnet18 \
 --lr 0.1 \
 --epochs 250 \
@@ -15,7 +15,7 @@ python datafree_kd.py \
 --act 0.001 \
 --balance 20 \
 --gpu 1 \
---seed 0 \
---log_tag pretrained_b \
+--seed 20 \
+--log_tag pretrained_c3 \
 --curr_option none \
 --data_root /data/lijingru/cifar10/
