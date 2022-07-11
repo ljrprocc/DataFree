@@ -3,9 +3,12 @@ import torch
 from .base import BaseSynthesis
 from datafree.utils import UnlabelBufferDataset, ImagePool, DataIter
 import torchvision.transforms as T
+from datafree.models.score_sde import sampling, configs
+from sampling import (ReverseDiffusionPredictor, 
+                      LangevinCorrector)
 
 class PretrainedGenerativeSynthesizer(BaseSynthesis):
-    def __init__(self, teacher, student, generator, nz, img_size, synthesis_batch_size=128, sample_batch_size=128, normalizer=None, device='cpu', mode='gan', use_ddim=False, replay_buffer=None, transform=None, distributed=False):
+    def __init__(self, teacher, student, generator, nz, img_size, synthesis_batch_size=128, sample_batch_size=128, normalizer=None, device='cpu', mode='gan', use_ddim=False, replay_buffer=None, transform=None, distributed=False, sde=None, inverse_scaler=None):
         super(PretrainedGenerativeSynthesizer, self).__init__(teacher, student)
         self.mode = mode
         # assert len(img_size)==3, "image size should be a 3-dimension tuple"
@@ -24,6 +27,8 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
         self.replay_buffer = replay_buffer
         self.transform = transform
         self.distributed = distributed
+        self.sde = sde
+        self.inverse_scaler = inverse_scaler
 
     def synthesize(self, l=None):
         if self.mode == 'ebm' or self.mode == 'diffusion':
@@ -93,6 +98,27 @@ class PretrainedGenerativeSynthesizer(BaseSynthesis):
 
             return self.data_iter.next()
 
-        elif self.mode == 'ebm' or self.mode == 'ebm':
+        elif self.mode == 'ebm':
             # UnlabelBufferDataset(self.replay_buffer, )
             return self.data_iter.next()
+
+        elif self.mode == 'sde':
+            #@title PC sampling
+            # img_size = config.data.image_size
+            # channels = config.data.num_channels
+            shape = (self.sample_batch_size, 3, self.img_size, self.img_size)
+            predictor = ReverseDiffusionPredictor #@param ["EulerMaruyamaPredictor", "AncestralSamplingPredictor", "ReverseDiffusionPredictor", "None"] {"type": "raw"}
+            corrector = LangevinCorrector #@param ["LangevinCorrector", "AnnealedLangevinDynamics", "None"] {"type": "raw"}
+            snr = 0.16 #@param {"type": "number"}
+            n_steps =  1#@param {"type": "integer"}
+            probability_flow = False #@param {"type": "boolean"}
+            # inverse_scaler = datasets.get_data_inverse_scaler(config)
+            sampling_fn = sampling.get_pc_sampler(self.sde, shape, predictor, corrector,
+                                                self.inverse_scaler, snr, n_steps=n_steps,
+                                                probability_flow=probability_flow,
+                                                continuous=True,
+                                                eps=1e-5, device=self.device)
+
+            x, n = sampling_fn(score_model)
+            print(x.max(), x.min())
+            return x

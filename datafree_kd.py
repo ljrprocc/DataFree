@@ -36,6 +36,14 @@ from improved_diffusion.script_util import(
     create_model_and_diffusion
 )
 
+def restore_checkpoint(ckpt_dir, device, state):
+    loaded_state = torch.load(ckpt_dir, map_location=device)
+    state['optimizer'].load_state_dict(loaded_state['optimizer'])
+    state['model'].load_state_dict(loaded_state['model'], strict=False)
+    state['ema'].load_state_dict(loaded_state['ema'])
+    state['step'] = loaded_state['step']
+    return state
+
 def create_argparser():
     defaults = dict(
         clip_denoised=True,
@@ -127,7 +135,7 @@ parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl
 
 # pretrained generative model testing
 # parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
-parser.add_argument('--pretrained_mode', type=str, default='gan', choices=['gan', 'vae', 'glow', 'diffusion', 'sgm', 'ebm'])
+parser.add_argument('--pretrained_mode', type=str, default='gan', choices=['gan', 'vae', 'glow', 'diffusion', 'sde', 'ebm'])
 parser.add_argument('--pretrained_G_weight', type=str, default='', help='The path to the pretrained generative models.')
 
 # Device
@@ -470,6 +478,8 @@ def main_worker(gpu, ngpus_per_node, args):
         kd_steps = args.kd_steps_interval.split(',')
         kd_steps = [int(x) for x in kd_steps]
         replay_buffer = None
+        sde = None
+        inverse_scaler = None
         # g_steps = args.g_steps_interval.split(',')
         # g_steps = [int(x) for x in g_steps]
         if args.pretrained_mode == 'gan':
@@ -521,9 +531,67 @@ def main_worker(gpu, ngpus_per_node, args):
             replay_buffer = replay_buffer.clamp_(0, 1) * 255
             replay_buffer = [Image.fromarray(x) for x in replay_buffer.permute(0,2,3,1).numpy().astype(np.uint8)]
 
+        elif args.pretrained_mode == 'sde':
+            from datafree.models.score_sde import models, sampling, sde_lib, configs, datasets
+            from models import utils as mutils
+            from models import ncsnv2
+            from models import ncsnpp
+            from models import ddpm as ddpm_model
+            from models import layerspp
+            from models import layers
+            from models import normalization
+            from sde_lib import VESDE, VPSDE, subVPSDE
+            # from sampling import (ReverseDiffusionPredictor, 
+            #           LangevinCorrector, 
+            #           EulerMaruyamaPredictor, 
+            #           AncestralSamplingPredictor, 
+            #           NoneCorrector, 
+            #           NonePredictor,
+            #           AnnealedLangevinDynamics)
+            sde = 'VESDE'
+            if sde.lower() == 'vesde':
+                from configs.ve import cifar10_ncsnpp_continuous as configs
+                
+                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/ve/cifar10_ncsnpp_continuous/checkpoint_24.pth"
+                config = configs.get_config()  
+                sde = VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+                sampling_eps = 1e-5
+            elif sde.lower() == 'vpsde':
+                from configs.vp import cifar10_ddpmpp_continuous as configs  
+                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/vp/cifar10_ddpmpp_continuous/checkpoint_8.pth"
+                config = configs.get_config()
+                sde = VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+                sampling_eps = 1e-3
+            elif sde.lower() == 'subvpsde':
+                from configs.subvp import cifar10_ddpmpp_continuous as configs
+                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/subvp/cifar10_ddpmpp_continuous/checkpoint_26.pth"
+                config = configs.get_config()
+                sde = subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+                sampling_eps = 1e-3
+            config.training.batch_size = args.batch_size
+            config.eval.batch_size = args.batch_size
+            sigmas = mutils.get_sigmas(config)
+            # print('1')
+            scaler = datasets.get_data_scaler(config)
+            # print('2')
+            inverse_scaler = datasets.get_data_inverse_scaler(config)
+            # print('3')
+            score_model = mutils.create_model(config)
+            G = score_model.to(self.gpu)
+            optimizer = get_optimizer(config, score_model.parameters())
+            ema = ExponentialMovingAverage(score_model.parameters(),
+                                        decay=config.model.ema_rate)
+            state = dict(step=0, optimizer=optimizer,
+                        model=G, ema=ema)
 
         print('Loading pretrained generator...')
-        if args.pretrained_mode != 'ebm' and args.pretrained_mode != 'diffusion':
+        if args.pretrained_mode == 'ebm' or args.pretrained_mode == 'diffusion':
+            # G.load_state_dict(ckpt)
+            pass
+        elif args.pretrained_mode == 'sde':
+            state = restore_checkpoint(args.pretrained_G_weight, state, config.device)
+            ema.copy_to(G.parameters())
+        else:
             G.load_state_dict(ckpt)
         synthesizer = datafree.synthesis.PretrainedGenerativeSynthesizer(
             teacher=teacher,
@@ -538,7 +606,9 @@ def main_worker(gpu, ngpus_per_node, args):
             mode=args.pretrained_mode,
             use_ddim=True,
             replay_buffer=replay_buffer,
-            transform = ori_dataset.transform
+            transform = ori_dataset.transform,
+            inverse_scaler=inverse_scaler,
+            sde=sde
         )
     else: raise NotImplementedError
         
