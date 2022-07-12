@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
+import sys
+sys.path.append('/data/lijingru/DataFree/datafree/models/score_sde')
 from op import upfirdn2d
 
 

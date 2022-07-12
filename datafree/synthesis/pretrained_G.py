@@ -3,8 +3,8 @@ import torch
 from .base import BaseSynthesis
 from datafree.utils import UnlabelBufferDataset, ImagePool, DataIter
 import torchvision.transforms as T
-from datafree.models.score_sde import sampling, configs
-from sampling import (ReverseDiffusionPredictor, 
+# from datafree.models.score_sde import sampling, configs
+from datafree.models.score_sde.sampling import (ReverseDiffusionPredictor, 
                       LangevinCorrector)
 
 class PretrainedGenerativeSynthesizer(BaseSynthesis):

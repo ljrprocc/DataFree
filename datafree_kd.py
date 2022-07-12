@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch import optim
 
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -35,6 +36,17 @@ from improved_diffusion.script_util import(
     model_and_diffusion_defaults,
     create_model_and_diffusion
 )
+
+def get_optimizer(config, params):
+  """Returns a flax optimizer object based on `config`."""
+  if config.optim.optimizer == 'Adam':
+    optimizer = optim.Adam(params, lr=config.optim.lr, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
+                           weight_decay=config.optim.weight_decay)
+  else:
+    raise NotImplementedError(
+      f'Optimizer {config.optim.optimizer} not supported yet!')
+
+  return optimizer
 
 def restore_checkpoint(ckpt_dir, device, state):
     loaded_state = torch.load(ckpt_dir, map_location=device)
@@ -532,15 +544,17 @@ def main_worker(gpu, ngpus_per_node, args):
             replay_buffer = [Image.fromarray(x) for x in replay_buffer.permute(0,2,3,1).numpy().astype(np.uint8)]
 
         elif args.pretrained_mode == 'sde':
-            from datafree.models.score_sde import models, sampling, sde_lib, configs, datasets
-            from models import utils as mutils
-            from models import ncsnv2
-            from models import ncsnpp
-            from models import ddpm as ddpm_model
-            from models import layerspp
-            from models import layers
-            from models import normalization
-            from sde_lib import VESDE, VPSDE, subVPSDE
+            # from datafree.models.score_sde import models, sampling, sde_lib, configs, datasets
+            from datafree.models.score_sde.models import utils as mutils
+            from datafree.models.score_sde.models import ncsnv2
+            from datafree.models.score_sde.models import ncsnpp
+            from datafree.models.score_sde.models import ddpm as ddpm_model
+            from datafree.models.score_sde.models import layerspp
+            from datafree.models.score_sde.models import layers
+            from datafree.models.score_sde.models import normalization
+            from datafree.models.score_sde.sde_lib import VESDE, VPSDE, subVPSDE
+            from datafree.models.score_sde.models.ema import ExponentialMovingAverage
+            # from datafree.models.score_sde
             # from sampling import (ReverseDiffusionPredictor, 
             #           LangevinCorrector, 
             #           EulerMaruyamaPredictor, 
@@ -550,34 +564,34 @@ def main_worker(gpu, ngpus_per_node, args):
             #           AnnealedLangevinDynamics)
             sde = 'VESDE'
             if sde.lower() == 'vesde':
-                from configs.ve import cifar10_ncsnpp_continuous as configs
+                from datafree.models.score_sde.configs.ve import cifar10_ncsnpp_continuous as configs
                 
                 # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/ve/cifar10_ncsnpp_continuous/checkpoint_24.pth"
                 config = configs.get_config()  
                 sde = VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
                 sampling_eps = 1e-5
             elif sde.lower() == 'vpsde':
-                from configs.vp import cifar10_ddpmpp_continuous as configs  
+                from datafree.models.score_sde.configs.vp import cifar10_ddpmpp_continuous as configs  
                 # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/vp/cifar10_ddpmpp_continuous/checkpoint_8.pth"
                 config = configs.get_config()
                 sde = VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
                 sampling_eps = 1e-3
             elif sde.lower() == 'subvpsde':
-                from configs.subvp import cifar10_ddpmpp_continuous as configs
+                from datafree.models.score_sde.configs.subvp import cifar10_ddpmpp_continuous as configs
                 # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/subvp/cifar10_ddpmpp_continuous/checkpoint_26.pth"
                 config = configs.get_config()
                 sde = subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
                 sampling_eps = 1e-3
             config.training.batch_size = args.batch_size
             config.eval.batch_size = args.batch_size
-            sigmas = mutils.get_sigmas(config)
+            # sigmas = mutils.get_sigmas(config)
             # print('1')
-            scaler = datasets.get_data_scaler(config)
+            # scaler = datafree.models.score_sde.datasets.get_data_scaler(config)
             # print('2')
-            inverse_scaler = datasets.get_data_inverse_scaler(config)
+            inverse_scaler = datafree.models.score_sde.datasets.get_data_inverse_scaler(config)
             # print('3')
             score_model = mutils.create_model(config)
-            G = score_model.to(self.gpu)
+            G = score_model.to(args.gpu)
             optimizer = get_optimizer(config, score_model.parameters())
             ema = ExponentialMovingAverage(score_model.parameters(),
                                         decay=config.model.ema_rate)

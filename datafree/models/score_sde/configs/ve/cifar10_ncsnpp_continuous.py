@@ -15,6 +15,8 @@
 
 # Lint as: python3
 """Training NCSN++ on CIFAR-10 with VE SDE."""
+import sys
+sys.path.append('/data/lijingru/DataFree/datafree/models/score_sde')
 from configs.default_cifar10_configs import get_default_configs
 
 

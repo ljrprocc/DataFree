@@ -14,7 +14,7 @@ python datafree_kd.py \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 4 \
+--gpu 1 \
 --seed 0 \
 --log_tag pretrained_sde \
 --curr_option none \
