@@ -544,16 +544,18 @@ def main_worker(gpu, ngpus_per_node, args):
             replay_buffer = [Image.fromarray(x) for x in replay_buffer.permute(0,2,3,1).numpy().astype(np.uint8)]
 
         elif args.pretrained_mode == 'sde':
+            # Following Online Sampling Algorithms,
+            # Maybe critically Slow.
             # from datafree.models.score_sde import models, sampling, sde_lib, configs, datasets
-            from datafree.models.score_sde.models import utils as mutils
-            from datafree.models.score_sde.models import ncsnv2
-            from datafree.models.score_sde.models import ncsnpp
-            from datafree.models.score_sde.models import ddpm as ddpm_model
-            from datafree.models.score_sde.models import layerspp
-            from datafree.models.score_sde.models import layers
-            from datafree.models.score_sde.models import normalization
-            from datafree.models.score_sde.sde_lib import VESDE, VPSDE, subVPSDE
-            from datafree.models.score_sde.models.ema import ExponentialMovingAverage
+            # from datafree.models.score_sde.models import utils as mutils
+            # from datafree.models.score_sde.models import ncsnv2
+            # from datafree.models.score_sde.models import ncsnpp
+            # from datafree.models.score_sde.models import ddpm as ddpm_model
+            # from datafree.models.score_sde.models import layerspp
+            # from datafree.models.score_sde.models import layers
+            # from datafree.models.score_sde.models import normalization
+            # from datafree.models.score_sde.sde_lib import VESDE, VPSDE, subVPSDE
+            # from datafree.models.score_sde.models.ema import ExponentialMovingAverage
             # from datafree.models.score_sde
             # from sampling import (ReverseDiffusionPredictor, 
             #           LangevinCorrector, 
@@ -562,49 +564,60 @@ def main_worker(gpu, ngpus_per_node, args):
             #           NoneCorrector, 
             #           NonePredictor,
             #           AnnealedLangevinDynamics)
-            sde = 'VESDE'
-            if sde.lower() == 'vesde':
-                from datafree.models.score_sde.configs.ve import cifar10_ncsnpp_continuous as configs
+            # sde = 'VPSDE'
+            # if sde.lower() == 'vesde':
+            #     from datafree.models.score_sde.configs.ve import cifar10_ncsnpp_continuous as configs
                 
-                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/ve/cifar10_ncsnpp_continuous/checkpoint_24.pth"
-                config = configs.get_config()  
-                sde = VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
-                sampling_eps = 1e-5
-            elif sde.lower() == 'vpsde':
-                from datafree.models.score_sde.configs.vp import cifar10_ddpmpp_continuous as configs  
-                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/vp/cifar10_ddpmpp_continuous/checkpoint_8.pth"
-                config = configs.get_config()
-                sde = VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-                sampling_eps = 1e-3
-            elif sde.lower() == 'subvpsde':
-                from datafree.models.score_sde.configs.subvp import cifar10_ddpmpp_continuous as configs
-                # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/subvp/cifar10_ddpmpp_continuous/checkpoint_26.pth"
-                config = configs.get_config()
-                sde = subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
-                sampling_eps = 1e-3
-            config.training.batch_size = args.batch_size
-            config.eval.batch_size = args.batch_size
-            # sigmas = mutils.get_sigmas(config)
-            # print('1')
-            # scaler = datafree.models.score_sde.datasets.get_data_scaler(config)
-            # print('2')
-            inverse_scaler = datafree.models.score_sde.datasets.get_data_inverse_scaler(config)
-            # print('3')
-            score_model = mutils.create_model(config)
-            G = score_model.to(args.gpu)
-            optimizer = get_optimizer(config, score_model.parameters())
-            ema = ExponentialMovingAverage(score_model.parameters(),
-                                        decay=config.model.ema_rate)
-            state = dict(step=0, optimizer=optimizer,
-                        model=G, ema=ema)
+            #     # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/ve/cifar10_ncsnpp_continuous/checkpoint_24.pth"
+            #     config = configs.get_config()  
+            #     sde = VESDE(sigma_min=config.model.sigma_min, sigma_max=config.model.sigma_max, N=config.model.num_scales)
+            #     sampling_eps = 1e-5
+            # elif sde.lower() == 'vpsde':
+            #     from datafree.models.score_sde.configs.vp import cifar10_ddpmpp_continuous as configs  
+            #     # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/vp/cifar10_ddpmpp_continuous/checkpoint_8.pth"
+            #     config = configs.get_config()
+            #     sde = VPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+            #     sampling_eps = 1e-3
+            # elif sde.lower() == 'subvpsde':
+            #     from datafree.models.score_sde.configs.subvp import cifar10_ddpmpp_continuous as configs
+            #     # ckpt_filename = "/data1/lijingru/score_sde_pytorch/exp/subvp/cifar10_ddpmpp_continuous/checkpoint_26.pth"
+            #     config = configs.get_config()
+            #     sde = subVPSDE(beta_min=config.model.beta_min, beta_max=config.model.beta_max, N=config.model.num_scales)
+            #     sampling_eps = 1e-3
+            # config.training.batch_size = args.batch_size
+            # config.eval.batch_size = args.batch_size
+            # # sigmas = mutils.get_sigmas(config)
+            # # print('1')
+            # # scaler = datafree.models.score_sde.datasets.get_data_scaler(config)
+            # # print('2')
+            # inverse_scaler = datafree.models.score_sde.datasets.get_data_inverse_scaler(config)
+            # # print('3')
+            # score_model = mutils.create_model(config)
+            # G = score_model.to(args.gpu)
+            # optimizer = get_optimizer(config, score_model.parameters())
+            # ema = ExponentialMovingAverage(score_model.parameters(),
+            #                             decay=config.model.ema_rate)
+            # state = dict(step=0, optimizer=optimizer,
+            #             model=G, ema=ema)
+            # Offline Sampling, Loading predownloaded buffer from local.
+            from PIL import Image
+            G = None
+            all_npzs = os.listdir(args.pretrained_G_weight)
+            replay_buffer = []
+            for npz in all_npzs:
+                npz_dir = os.path.join(args.pretrained_G_weight, npz)
+                npz_load = np.load(npz_dir)
+                images = [Image.fromarray(x) for x in npz_load['samples']]
+                replay_buffer.extend(images)
+
 
         print('Loading pretrained generator...')
-        if args.pretrained_mode == 'ebm' or args.pretrained_mode == 'diffusion':
+        if args.pretrained_mode == 'ebm' or args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'sde':
             # G.load_state_dict(ckpt)
             pass
-        elif args.pretrained_mode == 'sde':
-            state = restore_checkpoint(args.pretrained_G_weight, state, config.device)
-            ema.copy_to(G.parameters())
+        # elif args.pretrained_mode == 'sde':
+        #     state = restore_checkpoint(args.pretrained_G_weight, config.device, state)
+        #     ema.copy_to(G.parameters())
         else:
             G.load_state_dict(ckpt)
         synthesizer = datafree.synthesis.PretrainedGenerativeSynthesizer(
@@ -798,7 +811,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
 
         if args.method == 'pretrained' and i == 0 and save:
-            if args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm':
+            if args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm' or args.pretrained_mode == 'sde':
                 vis = synthesizer.normalizer(images, reverse=True)
             else:
                 vis = images

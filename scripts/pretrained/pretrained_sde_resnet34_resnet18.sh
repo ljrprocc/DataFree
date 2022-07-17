@@ -1,7 +1,7 @@
 python datafree_kd.py \
 --method pretrained \
 --pretrained_mode sde \
---pretrained_G_weight /data1/lijingru/score_sde_pytorch/exp/ve/cifar10_ncsnpp_continuous/checkpoint_24.pth \
+--pretrained_G_weight /data1/lijingru/score_sde_pytorch/save/ode/ \
 --dataset cifar10 \
 --batch_size 256 \
 --teacher vgg11 \
@@ -14,8 +14,8 @@ python datafree_kd.py \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 1 \
+--gpu 3 \
 --seed 0 \
---log_tag pretrained_sde \
+--log_tag pretrained_sde_offline_vgg \
 --curr_option none \
 --data_root /data/lijingru/cifar10/ 

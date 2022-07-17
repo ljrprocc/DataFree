@@ -7,6 +7,7 @@ from torch.utils.cpp_extension import load
 
 
 module_path = os.path.dirname(__file__)
+# print('*******1')
 upfirdn2d_op = load(
     "upfirdn2d",
     sources=[
@@ -14,6 +15,7 @@ upfirdn2d_op = load(
         os.path.join(module_path, "upfirdn2d_kernel.cu"),
     ],
 )
+# print('*******2')
 
 
 class UpFirDn2dBackward(Function):
