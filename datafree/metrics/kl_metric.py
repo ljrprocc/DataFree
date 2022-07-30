@@ -2,26 +2,31 @@ import numpy as np
 import torch
 from .stream_metrics import Metric
 from typing import Callable
+from scipy.spatial import distance
 
-__all__=['Accuracy', 'TopkAccuracy']
+__all__=['ProbLoyalty']
 
-class Accuracy(Metric):
+class ProbLoyalty(Metric):
     def __init__(self):
         self.reset()
 
     @torch.no_grad()
     def update(self, outputs, targets):
-        outputs = outputs.max(1)[1]
-        if len(targets.shape) > 1:
-            targets = targets.max(1)[1]
-        self._correct += ( outputs.view(-1)==targets.view(-1) ).sum()
-        self._cnt += torch.numel( targets )
+        outputs = torch.softmax(outputs, 1)
+        targets = torch.softmax(targets, 1)
+        outputs = outputs.detach().cpu().numpy()
+        targets = targets.cpu().numpy()
+        assert len(outputs.shape) == 2
+        assert len(targets.shape) == 2
+        js = distance.jensenshannon(outputs.T, targets.T)
+        self._pl += np.sum(1 - np.sqrt(js))
+        self._cnt += outputs.shape[0]
 
     def get_results(self):
-        return (self._correct / self._cnt * 100.).detach().cpu()
+        return self._pl / self._cnt
     
     def reset(self):
-        self._correct = self._cnt = 0.0
+        self._pl = self._cnt = 0.0
 
 
 class TopkAccuracy(Metric):

@@ -144,6 +144,7 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 
 parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
+parser.add_argument('--log_fidelity', action="store_true")
 
 # pretrained generative model testing
 # parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
@@ -290,6 +291,8 @@ def main_worker(gpu, ngpus_per_node, args):
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=True)
     evaluator = datafree.evaluators.classification_evaluator(val_loader)
+    loyalty_measurer = datafree.evaluators.prediction_agreement_evaluator(val_loader)
+    difficulty_measurer = datafree.evaluators.difficulty_evaluator(val_loader)
     if args.log_y_kl:
         ykl_evaluator = datafree.evaluators.ykl_classification_evaluator(val_loader, L=args.depth+1)
 
@@ -442,7 +445,7 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             args.start_l = 0
             args.g_steps *= L
-        assert args.no_feature or len(kd_steps) == L, 'gdynb'
+        assert args.no_feature or len(kd_steps) == L, 'error'
         args.L = L
         for l in range(L):
             nz=512 if args.dataset.startswith('cifar') else 1024
@@ -605,10 +608,11 @@ def main_worker(gpu, ngpus_per_node, args):
             all_npzs = os.listdir(args.pretrained_G_weight)
             replay_buffer = []
             for npz in all_npzs:
-                npz_dir = os.path.join(args.pretrained_G_weight, npz)
-                npz_load = np.load(npz_dir)
-                images = [Image.fromarray(x) for x in npz_load['samples']]
-                replay_buffer.extend(images)
+                if npz.endswith('.npz'):
+                    npz_dir = os.path.join(args.pretrained_G_weight, npz)
+                    npz_load = np.load(npz_dir)
+                    images = [Image.fromarray(x) for x in npz_load['samples']]
+                    replay_buffer.extend(images)
 
 
         print('Loading pretrained generator...')
@@ -717,19 +721,18 @@ def main_worker(gpu, ngpus_per_node, args):
                 # if args.method != 'pretrained':
                 vis_result = synthesizer.synthesize(l=l) # g_steps
                 # 2. Knowledge distillation
-                # train( synthesizer, [student, teacher], criterion, optimizer, args, kd_steps if args.method == 'cudfkd' and (not args.no_feature) else [args.kd_steps]) # # 
                 # kd_steps
                 global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter, save=(k==0))
+                if args.log_fidelity:
+                    global_iter, avg_diff = global_iter
                 # if l == 0:
                 #     vis_result = vis_results
 
-        # if epoch > args.epochs // 5 and epoch < args.epochs // 3 * 2:
-        # if epoch  > args.epochs // 4 and epoch < args.epochs // 4 * 3:    
-            # synthesizer.adv += 0.5  # For cifar10
-            # synthesizer.adv += 0.3  # For cifar100
         if args.method == 'cudfkd':
             if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
                 synthesizer.adv += args.grad_adv
+
+            
         
         if vis_result is not None:
             for vis_name, vis_image in vis_result.items():
@@ -738,11 +741,18 @@ def main_worker(gpu, ngpus_per_node, args):
         
         student.eval()
         if args.log_y_kl:
+            # Extend the evaluator, to new evaluation benchmarks, including data difficulty.
+
             eval_results = evaluator(student, device=args.gpu)
             ykl_eval_results = ykl_evaluator(teacher, device=args.gpu, G_list=G_list, normalizer=normalizer)
 
         else:
             eval_results = evaluator(student, device=args.gpu)
+
+        if args.log_fidelity:
+            eval_f = loyalty_measurer(teacher, student, device=args.gpu)
+            agreement, prob_loyalty = eval_f['agreement'], eval_f['prob_loyalty']
+
         (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
             
         logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
@@ -752,6 +762,9 @@ def main_worker(gpu, ngpus_per_node, args):
             for l in range(1):
                 kl_div = ykl_eval_results['y_kl']['kl_at_{}'.format(l)]
                 info += ' KL@y{l}={KLy:.5f}'.format(l=l, KLy=kl_div)
+            logger.info(info)
+        if args.log_fidelity:
+            info = '[Eval] Epoch={current_epoch} Agreement@1={agreement:.4f} Prob_loyalty={prob_loyalty:.4f} Generated_Difficulty={avg_diff:.4f}'.format(current_epoch=args.current_epoch, agreement=agreement, prob_loyalty=prob_loyalty, avg_diff=avg_diff)
             logger.info(info)
         scheduler.step()
         is_best = acc1 > best_acc1
@@ -831,18 +844,13 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
                 reduct = 'none'
             s_out = student(images.detach(), l=l)
             loss_s = criterion(s_out, t_out.detach())
-            # if torch.isnan(loss_s):
-            #     print(images)
-                # exit(-1)
-            # print(loss_s.item())
 
+        avg_diff = 0
         if reduct == 'none':
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
-            # if args.local_rank <= 0:
-            # print(loss_s.mean(), v.mean())
-            # exit(-1)
             loss_s = (v * loss_s).sum() + g
+            avg_diff = (v * loss_s).sum() / v.sum()
         
             
         optimizer.zero_grad()
@@ -864,7 +872,10 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             loss_metric.reset(), acc_metric.reset()
     
     # exit(-1)
-    return global_iter
+    if args.log_fidelity:
+        return global_iter, avg_diff
+    else:
+        return global_iter
     
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):
     if is_best:

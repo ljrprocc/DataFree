@@ -14,8 +14,10 @@ python datafree_kd.py \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 0 \
---seed 0 \
---log_tag pretrained_diffusion_offline \
+--gpu 1 \
+--seed 20 \
+--log_tag pretrained_diffusion_offline_vgg_3 \
 --curr_option none \
 --data_root /data/lijingru/cifar10/ 
+# --pretrained_G_weight /tmp/openai-2022-07-02-15-15-09-089368/samples_100000x32x32x3.npz \
+# --pretrained_G_weight /tmp/openai-2022-07-16-14-13-13-216634/samples_100000x32x32x3.npz \

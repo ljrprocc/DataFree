@@ -14,8 +14,8 @@ python datafree_kd.py \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 1 \
---seed 20 \
---log_tag pretrained_c3 \
+--gpu 3 \
+--seed 30 \
+--log_tag pretrained_vgg_3 \
 --curr_option none \
 --data_root /data/lijingru/cifar10/

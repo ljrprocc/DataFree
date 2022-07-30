@@ -15,7 +15,7 @@ python datafree_kd.py \
 --act 0.001 \
 --balance 20 \
 --gpu 4 \
---seed 0 \
---log_tag pretrained_ebm_offline \
+--seed 10 \
+--log_tag pretrained_ebm_offline_3 \
 --curr_option none \
 --data_root /data/lijingru/cifar10/ 

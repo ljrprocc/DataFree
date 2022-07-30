@@ -25,6 +25,24 @@ class Evaluator(object):
     
     def __call__(self, *args, **kwargs):
         return self.eval(*args, **kwargs)
+
+class AgreeEvaluator(object):
+    def __init__(self, metric, dataloader):
+        self.dataloader = dataloader
+        self.metric = metric
+
+    def eval(self, model_t, model_s, device=None, progress=False):
+        self.metric.reset()
+        with torch.no_grad():
+            for i, (inputs, _) in enumerate(tqdm(self.dataloader, disable=not progress)):
+                inputs = inputs.to(device)
+                logit_t = model_t(inputs)
+                logit_s = model_s(inputs)
+                self.metric.update(logit_s, logit_t)
+        return self.metric.get_results()
+    
+    def __call__(self, *args, **kwargs):
+        return self.eval(*args, **kwargs)
         
 class YKLEvaluator(object):
     def __init__(self, metric, dataloader, logit_kl_metric=None):
@@ -118,3 +136,22 @@ def segmentation_evaluator(dataloader, num_classes, ignore_idx=255):
         'Loss': metrics.RunningLoss(torch.nn.CrossEntropyLoss(reduction='sum'))
     })
     return Evaluator( metric, dataloader=dataloader)
+
+# Read paper, make conclusion, and design experiment
+
+def prediction_agreement_evaluator(dataloader):
+    metric = metrics.MetricCompose({
+        'agreement': metrics.Accuracy(),
+        'prob_loyalty': metrics.ProbLoyalty(),
+    })
+    return AgreeEvaluator(metric, dataloader=dataloader)
+
+def difficulty_evaluator(dataloader):
+    metric = metrics.RunningLoss(torch.nn.KLDivLoss(reduction='sum'))
+    return Evaluator(metric, dataloader=dataloader)
+
+# def lotalty_evaluator(dataloader):
+#     pass
+
+# def prob_lotalty_evaluator(dataloader):
+#     pass
