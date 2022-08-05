@@ -32,10 +32,10 @@ import json
 #     model_and_diffusion_defaults,
 #     create_model_and_diffusion,
 # )
-from improved_diffusion.script_util import(
-    model_and_diffusion_defaults,
-    create_model_and_diffusion
-)
+# from improved_diffusion.script_util import(
+#     model_and_diffusion_defaults,
+#     create_model_and_diffusion
+# )
 
 def get_optimizer(config, params):
   """Returns a flax optimizer object based on `config`."""
