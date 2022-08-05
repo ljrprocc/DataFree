@@ -37,8 +37,8 @@ class DeepInvSyntheiszer(BaseSynthesis):
         self.save_dir = save_dir
         self.img_size = img_size 
         self.iterations = iterations
-        print(self.iterations)
-        exit(-1)
+        # print(self.iterations)
+        # exit(-1)
         self.lr_g = lr_g
         self.normalizer = normalizer
         self.data_pool = ImagePool(root=self.save_dir)
