@@ -30,7 +30,7 @@ The implementation is in `datafree/synthesis/cudfkd.py`.
 | DFQ        | 94.61 | 90.84 | 91.69   | 92.01   | 86.14   |
 | CMI        | 94.84 | 91.13 | 92.78   | 92.52   | **90.01**   |
 | PRE-DFKD   | 94.10 | N\A   | N\A     | N\A     | N\A     |
-| CuDFKD     | **95.21** | **91.61** | **92.88**   | **92.86**   | 87.44   |
+| CuDFKD     | **95.28** | **91.61** | **93.18**   | **92.98**   | 88.77   |
 
 GPU and time usage when using a simple NVIDIA 3090 TI with batch size 256.
 
@@ -57,7 +57,7 @@ GPU and time usage when using a simple NVIDIA 3090 TI with batch size 256.
 | DFQ        | 77.01 | 68.32 | 61.92   | 59.01   |
 | CMI        | 77.02 | 70.56 | **68.88**   | **68.57**   |
 | PRE-DFKD   | **77.04** | N\A   | N\A     | N\A     |
-| CuDFKD     | 75.17 | **70.71** | 63.85   | 62.88   |
+| CuDFKD     | 75.87 | **71.22** | 64.70   | 64.70   |
 
 |          | $\mu$ | $\sigma^2$ | best | Mem   | Time  |
 |----------|-------|------------|------|-------|-------|
@@ -67,7 +67,7 @@ GPU and time usage when using a simple NVIDIA 3090 TI with batch size 256.
 | CMI      | 55.2  | 24.1       | 77.0 | 12.5G | 22.3h |
 | MB-DFKD  | 64.4  | 18.3       | 75.4 | -     | -     |
 | PRE-DFKD | 70.2  | 11.1       | **77.1** | -     | -     |
-| CuDFKD   | **71.7**  | **4.37**       | 75.2 | 6.84G | 7.50h |
+| CuDFKD   | **71.7**  | **4.37**       | 75.9 | 6.84G | 7.50h |
 
 
 ## Other visualization results

@@ -11,6 +11,9 @@ python datafree_kd.py \
 --g_steps_interval 1 \
 --ep_steps 400 \
 --g_steps 1 \
+--begin_fraction 0.2 \
+--end_fraction 0.75 \
+--grad_adv 0.1 \
 --lr_g 0.001 \
 --adv 0. \
 --depth 2 \
@@ -18,15 +21,16 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 4 \
+--gpu 0 \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line20 \
+--log_tag cudfkd_L2_line32_a \
 --data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \
 --lambda_0 1 \
+--log_fidelity \
 --loss l1
 # --resume /data/lijingru/DataFree/checkpoints/datafree-cudfkd/cifar10-resnet34-resnet18--cudfkd_dcgan_L2_adv_testrelu2.pth

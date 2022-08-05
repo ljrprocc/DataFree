@@ -1,10 +1,10 @@
 python datafree_kd.py \
 --method cudfkd \
 --dataset cifar10 \
---batch_size 768 \
+--batch_size 512 \
 --teacher resnet34 \
 --student resnet18 \
---lr 0.05 \
+--lr 0.1 \
 --epochs 250 \
 --kd_steps 5 \
 --kd_steps_interval 10 \
@@ -22,7 +22,7 @@ python datafree_kd.py \
 --oh 1 \
 --act 0. \
 --gpu 2 \
---seed 0 \
+--seed 30 \
 --bn 1 \
 --save_dir run/cudfkd_test \
 --log_tag cudfkd_L2_line98_2 \

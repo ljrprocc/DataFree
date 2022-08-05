@@ -12,8 +12,8 @@ class ProbLoyalty(Metric):
 
     @torch.no_grad()
     def update(self, outputs, targets):
-        outputs = torch.softmax(outputs, 1)
-        targets = torch.softmax(targets, 1)
+        outputs = torch.softmax(outputs, 1) + 1e-8
+        targets = torch.softmax(targets, 1) + 1e-8
         outputs = outputs.detach().cpu().numpy()
         targets = targets.cpu().numpy()
         assert len(outputs.shape) == 2

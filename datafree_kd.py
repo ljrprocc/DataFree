@@ -127,6 +127,7 @@ parser.add_argument('--kd_steps', default=400, type=int, metavar='N',
 parser.add_argument('--kd_steps_interval', type=str, default='400,200,100', help='number of iterations for KD after generaton for each level of feature map.')
 parser.add_argument('--ep_steps', default=400, type=int, metavar='N',
                     help='number of total iterations in each epoch')
+parser.add_argument('--save_freq', default=0, type=int, help='Save every t epochs for further visuali')
 
 parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
@@ -192,7 +193,8 @@ parser.add_argument('--pretrained', dest='pretrained', action='store_true',
 parser.add_argument('--curr_option', type=str, default='spl')
 parser.add_argument('--lambda_0', type=float, default=1.)
 best_acc1 = 0
-
+best_agg1 = 0
+best_prob1 = 0
 
 def main():
     args = parser.parse_args()
@@ -231,7 +233,7 @@ def main():
 
 
 def main_worker(gpu, ngpus_per_node, args):
-    global best_acc1
+    global best_acc1, best_agg1, best_prob1
     args.gpu = gpu
     if args.distributed:
         args.local_rank = gpu
@@ -351,6 +353,10 @@ def main_worker(gpu, ngpus_per_node, args):
     teacher = prepare_model(teacher)
     teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     criterion = datafree.criterions.KLDiv(T=args.T)
+    kd_steps = args.kd_steps_interval.split(',')
+    kd_steps = [int(x) for x in kd_steps]
+    g_steps = args.g_steps_interval.split(',')
+    g_steps = [int(x) for x in g_steps]
     
     ############################################
     # Setup data-free synthesizers
@@ -423,10 +429,7 @@ def main_worker(gpu, ngpus_per_node, args):
         # E_list = []
         # L = teacher.num_blocks
         # for debug
-        kd_steps = args.kd_steps_interval.split(',')
-        kd_steps = [int(x) for x in kd_steps]
-        g_steps = args.g_steps_interval.split(',')
-        g_steps = [int(x) for x in g_steps]
+        
         img_size = 32 if args.dataset.startswith('cifar') else 64
         
         if args.loss == 'l1':
@@ -719,7 +722,7 @@ def main_worker(gpu, ngpus_per_node, args):
             vis_result = None
             for l in range(L):
                 # if args.method != 'pretrained':
-                vis_result = synthesizer.synthesize(l=l) # g_steps
+                vis_result = synthesizer.synthesize() # g_steps
                 # 2. Knowledge distillation
                 # kd_steps
                 global_iter = train(synthesizer, [student, teacher], criterion, optimizer, args, kd_steps[l], l=l, global_iter=global_iter, save=(k==0))
@@ -775,6 +778,9 @@ def main_worker(gpu, ngpus_per_node, args):
         #         Gl_1 = G_list[l-1]
         #         datafree.utils.copy_state_dict(G1=Gl_1, G2=Gl, l=l)
         best_acc1 = max(acc1, best_acc1)
+        if args.log_fidelity:
+            best_agg1 = max(agreement, best_agg1)
+            best_prob1 = max(prob_loyalty, best_prob1)
         if args.distributed:
             _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s-R%d.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag, args.local_rank)
         else:
@@ -796,6 +802,8 @@ def main_worker(gpu, ngpus_per_node, args):
             save_checkpoint(save_dict, is_best, _best_ckpt)
     if args.local_rank<=0 or args.distributed:
         logger.info("Best: %.4f"%best_acc1)
+        if args.log_fidelity:
+            logger.info("Best Agreement@1: %.4f\tBest Prob Loyalty: %.4f"%(best_agg1, best_prob1))
 
 
 def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_iter=0, save=False):
@@ -820,7 +828,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         if args.dataset == 'cifar10':
             alpha = 0.0001
         else:
-            alpha = 0.00005
+            alpha = 0.00002
         lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
 
         if args.method == 'pretrained' and i == 0 and save:

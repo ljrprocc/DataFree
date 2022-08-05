@@ -1,10 +1,10 @@
 python datafree_kd.py \
 --method cmi \
 --dataset cifar10 \
---batch_size 128 \
---synthesis_batch_size 256 \
+--batch_size 256 \
+--synthesis_batch_size 512 \
 --teacher wrn40_2 \
---student wrn16_1 \
+--student wrn16_2 \
 --lr 0.1 \
 --kd_steps 400 \
 --ep_steps 400 \
@@ -20,5 +20,8 @@ python datafree_kd.py \
 --gpu 0 \
 --seed 0 \
 --T 20 \
---save_dir run/scratch_cmi \
+--save_dir run/scratch_cmi_c \
+--data_root ~/cifar10 \
+--log_fidelity \
+--curr_option none \
 --log_tag scratch_cmi
