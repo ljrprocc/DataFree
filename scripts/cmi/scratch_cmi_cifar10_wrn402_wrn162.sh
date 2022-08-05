@@ -24,4 +24,4 @@ python datafree_kd.py \
 --data_root ~/cifar10 \
 --log_fidelity \
 --curr_option none \
---log_tag scratch_cmi
+--log_tag scratch_cmi_c
