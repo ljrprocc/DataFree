@@ -255,9 +255,6 @@ def clip_images(image_tensor, mean, std):
         image_tensor[:, c] = torch.clamp(image_tensor[:, c], -m / s, (1 - m) / s)
     return image_tensor
 
-def set_requires_grad(module, flag):
-    for m in module.parameters():
-        m.requires_grad = flag
     
 def save_image_batch(imgs, output, col=None, size=None, pack=True):
     if isinstance(imgs, torch.Tensor):

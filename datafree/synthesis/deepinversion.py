@@ -37,6 +37,8 @@ class DeepInvSyntheiszer(BaseSynthesis):
         self.save_dir = save_dir
         self.img_size = img_size 
         self.iterations = iterations
+        print(self.iterations)
+        exit(-1)
         self.lr_g = lr_g
         self.normalizer = normalizer
         self.data_pool = ImagePool(root=self.save_dir)
@@ -72,6 +74,8 @@ class DeepInvSyntheiszer(BaseSynthesis):
         self.student.eval()
         best_cost = 1e6
         inputs = torch.randn( size=[self.synthesis_batch_size, *self.img_size], device=self.device).requires_grad_()
+        # print(inputs)
+        # exit(-1)
         if targets is None:
             targets = torch.randint(low=0, high=self.num_classes, size=(self.synthesis_batch_size,))
             targets = targets.sort()[0] # sort for better visualization
@@ -79,11 +83,15 @@ class DeepInvSyntheiszer(BaseSynthesis):
 
         optimizer = torch.optim.Adam([inputs], self.lr_g, betas=[0.5, 0.99])
         #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=self.iterations )
+        # print(targets)
+        # exit(-1)
 
         best_inputs = inputs.data
         for it in range(self.iterations):
             inputs_aug = jitter_and_flip(inputs)
             t_out = self.teacher(inputs_aug)
+            # print(t_out)
+            # exit(-1)
             loss_bn = sum([h.r_feature for h in self.hooks])
             loss_oh = F.cross_entropy( t_out, targets )
             if self.adv>0:
@@ -94,6 +102,8 @@ class DeepInvSyntheiszer(BaseSynthesis):
             loss_tv = get_image_prior_losses(inputs)
             loss_l2 = torch.norm(inputs, 2)
             loss = self.bn * loss_bn + self.oh * loss_oh + self.adv * loss_adv + self.tv * loss_tv + self.l2 * loss_l2
+            # print(loss.item(), loss_bn.item(), loss_oh.item(), loss_adv.item(), loss_tv.item(), loss_l2.item())
+            # exit(-1)
             
             if best_cost > loss.item():
                 best_cost = loss.item()
@@ -103,6 +113,10 @@ class DeepInvSyntheiszer(BaseSynthesis):
             optimizer.step()
             #scheduler.step()
             inputs.data = clip_images(inputs.data, self.normalizer.mean, self.normalizer.std)
+            # print(inputs)
+            # exit(-1)
+        # print(best_inputs)
+        # exit(-1)
         self.student.train()
         # save best inputs and reset data loader
         if self.normalizer:
@@ -117,6 +131,8 @@ class DeepInvSyntheiszer(BaseSynthesis):
             dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
             num_workers=4, pin_memory=True, sampler=train_sampler)
         self.data_iter = DataIter(loader)
+        # print(self.data_iter.next())
+        # exit(-1)
         return {'synthetic': best_inputs}
         
     def sample(self):

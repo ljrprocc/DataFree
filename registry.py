@@ -21,9 +21,7 @@ NORMALIZE_DICT = {
     'cifar10':  dict( mean=(0.4914, 0.4822, 0.4465), std=(0.2023, 0.1994, 0.2010) ),
     'cifar100': dict( mean=(0.5071, 0.4867, 0.4408), std=(0.2675, 0.2565, 0.2761) ),
     'imagenet': dict( mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-    # 'tiny_imagenet': dict( mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     'tiny_imagenet': dict(mean=[0.4802, 0.4481, 0.3975], std=[0.2302, 0.2265, 0.2262]),
-    
     'cub200':   dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     'stanford_dogs':   dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     'stanford_cars':   dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
@@ -31,7 +29,6 @@ NORMALIZE_DICT = {
     'places365_64x64': dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     'places365': dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     'svhn': dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
-    # 'tiny_imagenet': dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     'imagenet_32x32': dict( mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5) ),
     
     # for semantic segmentation
@@ -78,101 +75,6 @@ SEGMENTATION_MODEL_DICT = {
     'deeplabv3_resnet50':  deeplab.deeplabv3_resnet50,
     'deeplabv3_mobilenet': deeplab.deeplabv3_mobilenet,
 }
-
-
-class RatioCIFAR10(torch.utils.data.Dataset):
-    def __init__(self, dst, model, ratio=1.0, gpu=None):
-        super(RatioCIFAR10, self).__init__()
-        self.ratio = ratio
-        self.dst = dst
-        self.teacher_path = os.path.join('/data/lijingru/DataFree/checkpoints/scratch/', 'cifar10_{}.pth'.format(model))
-        ckpt = torch.load(self.teacher_path, map_location='cpu')['state_dict']
-        self.teacher = model
-        self.model = MODEL_DICT[model](num_classes=10)
-        self.model.load_state_dict(ckpt)
-        self.model.eval()
-        self.gpu = gpu
-        if gpu is not None:
-            self.model.to(gpu)
-        self.x, self.y, self.indice = self._confidence()
-
-
-    def _confidence(self):
-        
-        res = {
-            'x': [],
-            'y': [],
-            'ent': []
-        }
-        dataloader = torch.utils.data.DataLoader(self.dst, batch_size=128, shuffle=False, num_workers=8, pin_memory=True)
-        for x,y in tqdm.tqdm(dataloader, desc='Updating Confidence indices...'):
-            output_logit = self.model(x.to(self.gpu))
-            p = (output_logit).softmax(1)
-            ents = (p * p.log()).sum(1)
-            res['x'] += list(x)
-            res['y'] += list(y)
-            res['ent'] += list(ents.detach().cpu())
-        
-        # print(len(res['ent']), len(res['x']), len(res['y']))
-        ent = torch.FloatTensor(res['ent'])
-        # print(type(res['x']))
-        x = torch.cat([w.unsqueeze(0) for w in res['x']], 0)
-        y = torch.LongTensor(res['y'])
-        # print(x.shape, y.shape)
-        _, indice = torch.sort(ent)
-        index_all = int(self.ratio * len(self.dst))
-        print('Sample {} samples'.format(index_all))
-        # print(indice)
-        select = torch.randint(0, index_all, (int(0.2 * len(self.dst)), ))
-        # res_x = [res['x'][i] for i in indice[select]]
-        # res_y = [res['y'][i] for i in indice[select]]
-
-        # res_x = [res['x'][i] for i in indice[-index_all:]]
-        # res_y = [res['y'][i] for i in indice[-index_all:]]
-        res_x = x[indice[-index_all:]]
-        res_y = y[indice[-index_all:]]
-        # print([res['ent'][i] for i in indice[:index_all]])
-        # print('Finished.')
-
-        # df = pd.DataFrame(res)
-        # df = df.sort_values(by=['ent'])
-        
-
-        return res_x, res_y, indice
-
-    def __getitem__(self, index: int):
-        x = self.x[index]
-        y = self.y[index]
-        # print(x.max(), x.min(), x.shape)
-        # exit(-1)
-        
-        return x, y
-        
-    def __len__(self):
-        return len(self.x)
-
-
-class RatioCIFAR10_new(datasets.CIFAR10):
-    def __init__(self, root: str, train: bool = True, transform=None, target_transform=None, download: bool = False, ratio : float = 1.0, sort_index: str = '') -> None:
-        super().__init__(root, train, transform, target_transform, download)
-        self.ratio = ratio
-        # print(sort_index)
-        self.sort_index = np.load(sort_index)
-        select = int(0.5 * len(self.sort_index))
-        real_length = int(ratio * len(self.sort_index))
-        sort_index = self.sort_index[:real_length]
-        select = np.random.randint(0, real_length, select)
-        data_index = sort_index[select]
-        self.data = self.data[data_index]
-        self.targets = [self.targets[w] for w in data_index]
-
-    def __getitem__(self, index: int):
-        return super().__getitem__(index)
-
-    def __len__(self) -> int:
-        return super().__len__()
-
-
 
 def get_model(name: str, num_classes, pretrained=False, **kwargs):
     if 'imagenet' in name:
@@ -222,8 +124,6 @@ def get_dataset(name: str, data_root: str='data', return_transform=False, split=
         # data_root = os.path.join( data_root, 'torchdata' ) 
         train_dst = datasets.CIFAR10(data_root, train=True, download=True, transform=train_transform)
         val_dst = datasets.CIFAR10(data_root, train=False, download=True, transform=val_transform)
-        if ratio:
-            train_dst = RatioCIFAR10_new(data_root, train=True, download=True, transform=train_transform, sort_index='./checkpoints/indice.npy', ratio=ratio_num)
     elif name=='c10+p365':
         num_classes = 10
         train_transform = T.Compose([
@@ -429,8 +329,7 @@ def get_dataset(name: str, data_root: str='data', return_transform=False, split=
             T.ToTensor(),
             T.Normalize( **NORMALIZE_DICT[name] )]
         )       
-        # data_root = os.path.join(data_root, 'tiny-imagenet-200')
-        # print(os.path.join(data_root, 'train'))
+        data_root = os.path.join(data_root, 'tiny-imagenet-200')
         train_dst = datasets.ImageFolder(os.path.join(data_root, 'train'), transform=train_transform)
         val_dst = datasets.ImageFolder(os.path.join(data_root, 'val_split'), transform=val_transform)
 
