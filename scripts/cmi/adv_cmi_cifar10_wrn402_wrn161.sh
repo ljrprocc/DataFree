@@ -6,9 +6,9 @@ python datafree_kd.py \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
---kd_steps_interval 2000 \
+--kd_steps 2000 \
 --ep_steps 2000 \
---g_steps_interval 200 \
+--g_steps 200 \
 --lr_g 1e-3 \
 --epochs 80 \
 --lr_decay_milestones 25,30,35 \

@@ -14,7 +14,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import optim
 
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -26,48 +25,7 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-import json
 
-# from guided_diffusion.script_util import (
-#     model_and_diffusion_defaults,
-#     create_model_and_diffusion,
-# )
-# from improved_diffusion.script_util import(
-#     model_and_diffusion_defaults,
-#     create_model_and_diffusion
-# )
-
-def get_optimizer(config, params):
-  """Returns a flax optimizer object based on `config`."""
-  if config.optim.optimizer == 'Adam':
-    optimizer = optim.Adam(params, lr=config.optim.lr, betas=(config.optim.beta1, 0.999), eps=config.optim.eps,
-                           weight_decay=config.optim.weight_decay)
-  else:
-    raise NotImplementedError(
-      f'Optimizer {config.optim.optimizer} not supported yet!')
-
-  return optimizer
-
-def restore_checkpoint(ckpt_dir, device, state):
-    loaded_state = torch.load(ckpt_dir, map_location=device)
-    state['optimizer'].load_state_dict(loaded_state['optimizer'])
-    state['model'].load_state_dict(loaded_state['model'], strict=False)
-    state['ema'].load_state_dict(loaded_state['ema'])
-    state['step'] = loaded_state['step']
-    return state
-
-def create_argparser():
-    defaults = dict(
-        clip_denoised=True,
-        num_samples=10000,
-        batch_size=16,
-        use_ddim=False,
-        model_path="",
-    )
-    defaults.update(model_and_diffusion_defaults())
-    # parser = argparse.ArgumentParser()
-    # add_dict_to_argparser(parser, defaults)
-    return defaults
 
 parser = argparse.ArgumentParser(description='Data-free Knowledge Distillation')
 
@@ -201,7 +159,6 @@ def main():
     if args.seed is not None:
         random.seed(args.seed)
         torch.manual_seed(args.seed)
-        torch.cuda.manual_seed(args.seed)
         cudnn.deterministic = True
         warnings.warn('You have chosen to seed training. '
                       'This will turn on the CUDNN deterministic setting, '
@@ -294,9 +251,6 @@ def main_worker(gpu, ngpus_per_node, args):
         num_workers=args.workers, pin_memory=True)
     evaluator = datafree.evaluators.classification_evaluator(val_loader)
     loyalty_measurer = datafree.evaluators.prediction_agreement_evaluator(val_loader)
-    difficulty_measurer = datafree.evaluators.difficulty_evaluator(val_loader)
-    if args.log_y_kl:
-        ykl_evaluator = datafree.evaluators.ykl_classification_evaluator(val_loader, L=args.depth+1)
 
     ############################################
     # Setup models
@@ -341,22 +295,23 @@ def main_worker(gpu, ngpus_per_node, args):
             args.student = args.student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
-    if args.dataset == 'tiny_imagenet':
-        teacher.avgpool = nn.AdaptiveAvgPool2d(1)
-        num_ftrs = teacher.fc.in_features
-        teacher.fc = nn.Linear(num_ftrs, 200)
-        teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
-        teacher.maxpool = nn.Sequential()
+    # if args.dataset == 'tiny_imagenet':
+    #     teacher.avgpool = nn.AdaptiveAvgPool2d(1)
+    #     num_ftrs = teacher.fc.in_features
+    #     teacher.fc = nn.Linear(num_ftrs, 200)
+    #     teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+    #     teacher.maxpool = nn.Sequential()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
-    
+    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     student = prepare_model(student)
     teacher = prepare_model(teacher)
-    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     criterion = datafree.criterions.KLDiv(T=args.T)
     kd_steps = args.kd_steps_interval.split(',')
     kd_steps = [int(x) for x in kd_steps]
     g_steps = args.g_steps_interval.split(',')
-    g_steps = [int(x) for x in g_steps]
+    g_step = [int(x) for x in g_steps]
+    g_steps = g_step[0]
+
     
     ############################################
     # Setup data-free synthesizers
@@ -394,7 +349,7 @@ def main_worker(gpu, ngpus_per_node, args):
                  nz=nz, num_classes=num_classes, img_size=(3, 32, 32), 
                  # if feature layers==None, all convolutional layers will be used by CMI.
                  feature_layers=feature_layers, bank_size=40960, n_neg=4096, head_dim=256, init_dataset=args.cmi_init,
-                 iterations=args.g_steps, lr_g=args.lr_g, progressive_scale=False,
+                 iterations=args.g_steps[0], lr_g=args.lr_g, progressive_scale=False,
                  synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size, 
                  adv=args.adv, bn=args.bn, oh=args.oh, cr=args.cr, cr_T=args.cr_T,
                  save_dir=args.save_dir, transform=ori_dataset.transform,
@@ -459,11 +414,6 @@ def main_worker(gpu, ngpus_per_node, args):
             else:
                 type = 'normal'
             tg = datafree.models.generator.DCGAN_Generator_CIFAR10(nz=nz, ngf=64, nc=3, img_size=img_size, d=args.depth, cond=args.cond, type=type, widen_factor=widen_factor)
-            # tg = datafree.models.generator.DCGAN_Generator(nz=nz, ngf=64, nc=3, img_size=img_size)
-            # E = datafree.models.generator.VAE_Encoder_CIFAR10(nz=nz, ngf=64, nc=3, img_size=32, d=args.depth)
-            # E = prepare_model(E)
-            
-            # tg = datafree.models.generator.LargeGenerator(nz=nz, ngf=64, img_size=32, nc=3)
             tg = prepare_model(tg)
             G_list.append(tg)
             # E_list.append(E)
@@ -474,7 +424,7 @@ def main_worker(gpu, ngpus_per_node, args):
             nz=nz,
             num_classes=num_classes,
             img_size=img_size,
-            iterations=g_steps,
+            iterations=g_step,
             lr_g=args.lr_g,
             synthesis_batch_size=args.synthesis_batch_size,
             sample_batch_size=args.batch_size,
@@ -652,20 +602,13 @@ def main_worker(gpu, ngpus_per_node, args):
     # layers = [student, student.layer2, student.layer3, student.layer4, student.linear]
     optimizers = []
     
-    optimizer = torch.optim.SGD(filter(lambda p: p.requires_grad, student.parameters()), args.lr, weight_decay=args.weight_decay, momentum=0.9)
+    optimizer = torch.optim.SGD(student.parameters(), args.lr, weight_decay=args.weight_decay, momentum=0.9)
     optimizers.append(optimizer)
-    # for l in range(1, L):
-    #     layer_para = []
-    #     for layer in layers[l:]:
-    #         layer_para += list(layer.parameters())
-    #     optimizer = torch.optim.SGD(layer_para, args.lr, weight_decay=args.weight_decay, momentum=0.9)
-    #     optimizers.append(optimizer)
 
     # milestones = [ int(ms) for ms in args.lr_decay_milestones.split(',') ]
     # scheduler = torch.optim.lr_scheduler.MultiStepLR( optimizer, milestones=milestones, gamma=0.1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR( optimizer, T_max=args.epochs)
     
-
     ############################################
     # Resume
     ############################################
@@ -707,7 +650,8 @@ def main_worker(gpu, ngpus_per_node, args):
     # Train Loop
     ############################################
     global_iter = 0
-    g, v = torch.zeros(1), torch.zeros(args.batch_size)
+    if args.method == 'cudfkd':
+        g, v = torch.zeros(1), torch.zeros(args.batch_size)
     L = 1
 
     for epoch in range(args.start_epoch, args.epochs):
@@ -734,8 +678,6 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.method == 'cudfkd':
             if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
                 synthesizer.adv += args.grad_adv
-
-            
         
         if vis_result is not None:
             for vis_name, vis_image in vis_result.items():
@@ -743,40 +685,20 @@ def main_worker(gpu, ngpus_per_node, args):
                     datafree.utils.save_image_batch( vis_image, 'checkpoints/datafree-%s/%s%s.png'%(args.method, vis_name, args.log_tag) )
         
         student.eval()
-        if args.log_y_kl:
-            # Extend the evaluator, to new evaluation benchmarks, including data difficulty.
-
-            eval_results = evaluator(student, device=args.gpu)
-            ykl_eval_results = ykl_evaluator(teacher, device=args.gpu, G_list=G_list, normalizer=normalizer)
-
-        else:
-            eval_results = evaluator(student, device=args.gpu)
+        eval_results = evaluator(student, device=args.gpu)
+        (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
 
         if args.log_fidelity:
             eval_f = loyalty_measurer(teacher, student, device=args.gpu)
             agreement, prob_loyalty = eval_f['agreement'], eval_f['prob_loyalty']
 
-        (acc1, acc5), val_loss = eval_results['Acc'], eval_results['Loss']
-            
         logger.info('[Eval] Epoch={current_epoch} Acc@1={acc1:.4f} Acc@5={acc5:.4f} Loss={loss:.4f} Lr={lr:.4f}'
                 .format(current_epoch=args.current_epoch, acc1=acc1, acc5=acc5, loss=val_loss, lr=optimizer.param_groups[0]['lr']))
-        if args.log_y_kl:
-            info = '[Eval] Epoch={current_epoch}'.format(current_epoch=args.current_epoch)
-            for l in range(1):
-                kl_div = ykl_eval_results['y_kl']['kl_at_{}'.format(l)]
-                info += ' KL@y{l}={KLy:.5f}'.format(l=l, KLy=kl_div)
-            logger.info(info)
         if args.log_fidelity:
             info = '[Eval] Epoch={current_epoch} Agreement@1={agreement:.4f} Prob_loyalty={prob_loyalty:.4f} Generated_Difficulty={avg_diff:.4f}'.format(current_epoch=args.current_epoch, agreement=agreement, prob_loyalty=prob_loyalty, avg_diff=avg_diff)
             logger.info(info)
         scheduler.step()
         is_best = acc1 > best_acc1
-        # if is_best:
-        #     for l in range(1, L):
-        #         # args.logger.info('Copying')
-        #         Gl = G_list[l]
-        #         Gl_1 = G_list[l-1]
-        #         datafree.utils.copy_state_dict(G1=Gl_1, G2=Gl, l=l)
         best_acc1 = max(acc1, best_acc1)
         if args.log_fidelity:
             best_agg1 = max(agreement, best_agg1)
@@ -820,16 +742,15 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
     history = (args.method == 'deepinv') or (args.method == 'cmi') or (args.method == 'pretrained' and (args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm'))
     for i in range(kd_step):
         loss_s = 0.0
-        # datafree.utils.set_requires_grad(student, True)    
-        # for l in range(start, L):
         
         images = synthesizer.sample(l, history=history) if args.method == 'cudfkd' else synthesizer.sample()
         
-        if args.dataset == 'cifar10':
-            alpha = 0.0001
-        else:
-            alpha = 0.00002
-        lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
+        if args.method == 'cudfkd':
+            if args.dataset == 'cifar10':
+                alpha = 0.0001
+            else:
+                alpha = 0.00002
+            lamda = datafree.datasets.utils.lambda_scheduler(args.lambda_0, global_iter, alpha=alpha)
 
         if args.method == 'pretrained' and i == 0 and save:
             if args.pretrained_mode == 'diffusion' or args.pretrained_mode == 'ebm' or args.pretrained_mode == 'sde':
@@ -838,19 +759,20 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
                 vis = images
             datafree.utils.save_image_batch( vis.detach(), 'checkpoints/datafree-%s/%s.png'%(args.method, args.log_tag) )
         # print(history)
+        # print(images.max(), images.min())
         if l == 0 and not history:
             images = synthesizer.normalizer(images.detach())
-        # print(images.max(), images.min()) 
+
         if args.gpu is not None:
             images = images.cuda(args.gpu, non_blocking=True)
         with args.autocast():
             with torch.no_grad():
-                t_out, t_feat = teacher(images, return_features=True, l=l)
+                t_out, t_feat = teacher(images, return_features=True)
             if args.curr_option == 'none':
                 reduct = 'mean'
             else:
                 reduct = 'none'
-            s_out = student(images.detach(), l=l)
+            s_out = student(images.detach())
             loss_s = criterion(s_out, t_out.detach())
 
         avg_diff = 0
@@ -858,9 +780,7 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
             loss_s = (v * loss_s).sum() + g
-            avg_diff = (v * loss_s).sum() / v.sum()
-        
-            
+            avg_diff = (v * loss_s).sum() / v.sum()   
         optimizer.zero_grad()
         if args.fp16:
             scaler_s = args.scaler_s

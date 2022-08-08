@@ -17,7 +17,7 @@ python datafree_kd.py \
 --cr_T 0.1 \
 --act 0 \
 --balance 0 \
---gpu 0 \
+--gpu 3 \
 --seed 0 \
 --T 20 \
 --save_dir run/scratch_cmi_a \
