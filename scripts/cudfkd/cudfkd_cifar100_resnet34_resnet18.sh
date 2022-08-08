@@ -11,7 +11,7 @@ python datafree_kd.py \
 --g_steps_interval 1 \
 --ep_steps 400 \
 --g_steps 1 \
---begin_fraction 0.2 \
+--begin_fraction 0.33333333 \
 --end_fraction 0.75 \
 --grad_adv 0.1 \
 --lr_g 0.001 \
@@ -21,11 +21,11 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 0 \
+--gpu 2 \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line32_a \
+--log_tag cudfkd_L2_line32_real_e \
 --data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \
