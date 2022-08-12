@@ -14,17 +14,17 @@ python datafree_kd.py \
 --lr_g 0.001 \
 --adv 0. \
 --depth 2 \
---T 4 \
+--T 1 \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 0 \
+--gpu 4 \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line29_d \
---begin_fraction 0.25 \
---end_fraction 0.6666666666 \
+--log_tag cudfkd_L2_line34_b \
+--begin_fraction 0.2 \
+--end_fraction 0.8 \
 --grad_adv 0.1 \
 --data_root ../cifar100/ \
 --no_feature \

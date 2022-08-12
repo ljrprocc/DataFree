@@ -699,6 +699,7 @@ def main_worker(gpu, ngpus_per_node, args):
             logger.info(info)
         scheduler.step()
         is_best = acc1 > best_acc1
+        is_new_direct = (args.save_freq > 0 and (epoch + 1) % args.save_freq == 0)
         best_acc1 = max(acc1, best_acc1)
         if args.log_fidelity:
             best_agg1 = max(agreement, best_agg1)
@@ -707,6 +708,9 @@ def main_worker(gpu, ngpus_per_node, args):
             _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s-R%d.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag, args.local_rank)
         else:
             _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-%s.pth'%(args.method, args.dataset, args.teacher, args.student, args.log_tag)
+        if epoch == 10:
+            _best_ckpt = 'checkpoints/datafree-%s/%s-%s-%s-10.pth'%(args.method, args.dataset, args.teacher, args.student)
+            is_best = True
         if not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.local_rank % ngpus_per_node == 0):
             save_dict = {
@@ -721,7 +725,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 # save_dict['G'] = tg.state_dict()
                 for l in range(L):
                     save_dict['G_{}'.format(l)] = G_list[l].state_dict()
-            save_checkpoint(save_dict, is_best, _best_ckpt)
+            save_checkpoint(save_dict, is_best, is_new_direct, epoch, _best_ckpt)
     if args.local_rank<=0 or args.distributed:
         logger.info("Best: %.4f"%best_acc1)
         if args.log_fidelity:
@@ -805,8 +809,12 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
     else:
         return global_iter
     
-def save_checkpoint(state, is_best, filename='checkpoint.pth'):
+def save_checkpoint(state, is_best, is_save_all, epoch=0, filename='checkpoint.pth'):
     if is_best:
+        if is_save_all:
+            if not os.path.exists('temp_ckpt/'):
+                os.mkdir('temp_ckpt/')
+            filename = 'temp_ckpt/{}_checkpoint_{}.pth'.format(filename[:-4], epoch)
         torch.save(state, filename)
 
 if __name__ == '__main__':

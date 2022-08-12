@@ -19,8 +19,8 @@ class ProbLoyalty(Metric):
         assert len(outputs.shape) == 2
         assert len(targets.shape) == 2
         js = distance.jensenshannon(outputs.T, targets.T)
-        self._pl += np.sum(1 - np.sqrt(js))
-        self._cnt += outputs.shape[0]
+        self._pl += np.nansum(1 - np.sqrt(js))
+        self._cnt += np.sum(~np.isnan(js))
 
     def get_results(self):
         return self._pl / self._cnt
