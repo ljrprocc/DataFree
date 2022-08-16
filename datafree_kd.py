@@ -104,6 +104,7 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
 
 parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
 parser.add_argument('--log_fidelity', action="store_true")
+parser.add_argument('--noisy', action="store_true")
 
 # pretrained generative model testing
 # parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
@@ -302,7 +303,11 @@ def main_worker(gpu, ngpus_per_node, args):
     #     teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
     #     teacher.maxpool = nn.Sequential()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
-    teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    # teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    if args.noisy:
+        teacher.load_state_dict(torch.load('checkpoints/scratch_i/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    else:
+        teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     student = prepare_model(student)
     teacher = prepare_model(teacher)
     criterion = datafree.criterions.KLDiv(T=args.T)

@@ -134,3 +134,11 @@ data
 ref
 run
 timm
+notebooks/difficulty/
+notebooks/*.pdf
+notebooks/lambda_0/
+notebooks/prob_loyalty_distribution/
+notebooks/heatmaps/
+notebooks/curr_strategy/
+notebooks/grad_adv/
+notebooks/T
