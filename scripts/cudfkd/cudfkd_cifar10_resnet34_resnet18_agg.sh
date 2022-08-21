@@ -1,8 +1,8 @@
 python datafree_kd.py \
 --method cudfkd \
 --dataset cifar10 \
---batch_size 1024 \
---teacher vgg11 \
+--batch_size 768 \
+--teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
 --epochs 250 \
@@ -21,15 +21,16 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 2 \
---seed 20 \
+--gpu 3 \
+--seed 95 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line91_dfq_agg3 \
+--log_tag cudfkd_noisy_d \
 --data_root ../cifar10/ \
 --no_feature \
 --adv_type kl \
 --curr_option curr_log \
 --lambda_0 2.0 \
+--noisy \
 --log_fidelity \
 --loss kl

@@ -296,12 +296,12 @@ def main_worker(gpu, ngpus_per_node, args):
             args.student = args.student + '_imagenet'
     student = registry.get_model(args.student, num_classes=num_classes)
     teacher = registry.get_model(args.teacher, num_classes=num_classes, pretrained=True).eval()
-    # if args.dataset == 'tiny_imagenet':
-    #     teacher.avgpool = nn.AdaptiveAvgPool2d(1)
-    #     num_ftrs = teacher.fc.in_features
-    #     teacher.fc = nn.Linear(num_ftrs, 200)
-    #     teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
-    #     teacher.maxpool = nn.Sequential()
+    if args.dataset == 'tiny_imagenet':
+        teacher.avgpool = nn.AdaptiveAvgPool2d(1)
+        num_ftrs = teacher.fc.in_features
+        teacher.fc = nn.Linear(num_ftrs, 200)
+        teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
+        teacher.maxpool = nn.Sequential()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
     # teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     if args.noisy:

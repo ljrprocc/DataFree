@@ -1,7 +1,7 @@
 python datafree_kd.py \
 --method deepinv \
 --dataset cifar10 \
---batch_size 256 \
+--batch_size 1024 \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
@@ -16,10 +16,10 @@ python datafree_kd.py \
 --T 20 \
 --act 0 \
 --balance 0 \
---gpu 1 \
+--gpu 0 \
 --seed 0 \
---save_dir /data/lijingru/run/deepinv_nonNoisy \
---log_tag deepinv_nonNoisy \
+--save_dir /data/lijingru/run/deepinv_nonNoisy_3 \
+--log_tag deepinv_nonNoisy_3 \
 --curr_option none \
 --log_fidelity \
 --data_root ~/cifar10/
