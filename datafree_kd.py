@@ -105,6 +105,7 @@ parser.add_argument('--synthesis_batch_size', default=None, type=int,
 parser.add_argument('--log_y_kl', action="store_true", help='Flag for logging kl divergence at y space.')
 parser.add_argument('--log_fidelity', action="store_true")
 parser.add_argument('--noisy', action="store_true")
+parser.add_argument('--memory', action="store_true")
 
 # pretrained generative model testing
 # parser.add_argument('--pretrained', action="store_true", help='Flag for whether use pretrained generative models')
@@ -443,7 +444,8 @@ def main_worker(gpu, ngpus_per_node, args):
             act=args.act,
             adv_type=args.adv_type,
             bn=args.bn,
-            T=args.T
+            T=args.T,
+            memory=args.memory
         )
 
     elif args.method == 'pretrained':

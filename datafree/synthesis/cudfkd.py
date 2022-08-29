@@ -23,7 +23,7 @@ def reset_model(model):
             nn.init.constant_(m.bias, 0)
 
 class ProbSynthesizer(BaseSynthesis):
-    def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=None, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0, l1=0.01, only_feature=False, depth=2, adv_type='js', bn=0, T=5):
+    def __init__(self, teacher, student, G_list, num_classes, img_size, nz, iterations=None, lr_g=0.1, synthesis_batch_size=128, sample_batch_size=128, save_dir='run/probkd', transform=None, normalizer=None, device='cpu', use_fp16=False, distributed=False, lmda_ent=0.5, adv=0.10, oh=0, act=0, l1=0.01, only_feature=False, depth=2, adv_type='js', bn=0, T=5, memory=False):
         super(ProbSynthesizer, self).__init__(teacher, student)
         self.save_dir = save_dir
         self.img_size = img_size 
@@ -56,6 +56,7 @@ class ProbSynthesizer(BaseSynthesis):
         self.act = act
         self.only_feature = only_feature
         self.T = T
+        self.memory = memory
         # self._get_teacher_bn()
         self.optimizers = []
         for i, G in enumerate(self.G_list):
@@ -86,6 +87,8 @@ class ProbSynthesizer(BaseSynthesis):
         # reset_model(G)
         # optimizer = torch.optim.Adam([{'params': G.parameters()}, {'params': [z]}], self.lr_g, betas=[0.5, 0.999])
         for i in range(self.iterations[l]):
+            # if i % 50 == 0:
+            #     print(i)
             
             z = torch.randn(self.synthesis_batch_size, self.nz).to(self.device)
             
@@ -126,10 +129,10 @@ class ProbSynthesizer(BaseSynthesis):
                 loss_adv = torch.zeros(1).to(self.device)
             
             loss = self.lmda_ent * ent + self.adv * loss_adv+ self.oh * loss_oh + self.act * loss_act + self.bn * loss_bn
-            # with torch.no_grad():
-            #     if best_cost > loss.item() or best_inputs is None:
-            #         best_cost = loss.item()
-            #         best_inputs = mu_theta
+            with torch.no_grad():
+                if best_cost > loss.item() or best_inputs is None:
+                    best_cost = loss.item()
+                    best_inputs = mu_theta
                     # print(best_inputs.max(), best_inputs.min())
                     
            
@@ -139,18 +142,19 @@ class ProbSynthesizer(BaseSynthesis):
            
         # exit(-1)
         # self.student.train()
-        # self.data_pool.add( best_inputs)
-        # dst = self.data_pool.get_dataset(transform=self.transform)
-        # # init_dst = datafree.utils.UnlabeledImageDataset(self.init_dataset, transform=self.transform)
-        # # dst = torch.utils.data.ConcatDataset([dst, init_dst])
-        # if self.distributed:
-        #     train_sampler = torch.utils.data.distributed.DistributedSampler(dst)
-        # else:
-        #     train_sampler = None
-        # loader = torch.utils.data.DataLoader(
-        #     dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
-        #     num_workers=4, pin_memory=True, sampler=train_sampler)
-        # self.data_iter = DataIter(loader)
+        if self.memory:
+            self.data_pool.add( best_inputs)
+            dst = self.data_pool.get_dataset(transform=self.transform)
+            # init_dst = datafree.utils.UnlabeledImageDataset(self.init_dataset, transform=self.transform)
+            # dst = torch.utils.data.ConcatDataset([dst, init_dst])
+            if self.distributed:
+                train_sampler = torch.utils.data.distributed.DistributedSampler(dst)
+            else:
+                train_sampler = None
+            loader = torch.utils.data.DataLoader(
+                dst, batch_size=self.sample_batch_size, shuffle=(train_sampler is None),
+                num_workers=4, pin_memory=True, sampler=train_sampler)
+            self.data_iter = DataIter(loader)
 
                 
         return {'synthetic': x_inputs} if l == 0 else {}

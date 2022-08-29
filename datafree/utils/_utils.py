@@ -401,11 +401,16 @@ class ImagePool(object):
     def __init__(self, root):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
+        self.datas = []
         self._idx = 0
 
     def add(self, imgs, targets=None):
         save_image_batch(imgs, os.path.join( self.root, "%d.png"%(self._idx) ), pack=False)
+        # self.datas.append(Image.fromarray(imgs.detach().cpu()))
         self._idx+=1
+
+    def visualize(self, batch_size):
+        save_image_batch()
 
     def get_dataset(self, transform=None, labeled=True):
         return UnlabeledImageDataset(self.root, transform=transform)
