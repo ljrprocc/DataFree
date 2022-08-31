@@ -398,22 +398,32 @@ class LabeledImageDataset(torch.utils.data.Dataset):
         return len(self.images)
 
 class ImagePool(object):
-    def __init__(self, root):
+    def __init__(self, root, save=False):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
-        self.datas = []
+        if not save:
+            self.datas = []
         self._idx = 0
+        self.save = save
 
     def add(self, imgs, targets=None):
-        save_image_batch(imgs, os.path.join( self.root, "%d.png"%(self._idx) ), pack=False)
-        # self.datas.append(Image.fromarray(imgs.detach().cpu()))
+        if self.save:
+            save_image_batch(imgs, os.path.join( self.root, "%d.png"%(self._idx) ), pack=False)
+        else:
+            x = [Image.fromarray(w)  for w in imgs.detach().cpu().clamp_(0,1).permute(0,3,1,2).numpy()*255]
+            self.datas.extend(x)
+        # self.datas.append(Image.fromarray(imgs.detach().cpu().permute()))
         self._idx+=1
 
     def visualize(self, batch_size):
+        idx = torch.randint(0, len(self.data), (batch_size,))
         save_image_batch()
 
     def get_dataset(self, transform=None, labeled=True):
-        return UnlabeledImageDataset(self.root, transform=transform)
+        if self.save:
+            return UnlabeledImageDataset(self.root, transform=transform)
+        else:
+            return UnlabelBufferDataset(self.datas, transform=transform)
 
 class DataIter(object):
     def __init__(self, dataloader):

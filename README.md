@@ -57,7 +57,7 @@ GPU and time usage when using a simple NVIDIA 3090 TI with batch size 256.
 | DFQ        | 77.01 | 68.32 | 61.92   | 59.01   |
 | CMI        | 77.02 | 70.56 | **68.88**   | **68.57**   |
 | PRE-DFKD   | **77.04** | N\A   | N\A     | N\A     |
-| CuDFKD     | 75.87 | **71.22** | 64.70   | 64.70   |
+| CuDFKD     | 75.87 | **71.22** | 66.43   | 65.94   |
 
 |          | $\mu$ | $\sigma^2$ | best | Mem   | Time  |
 |----------|-------|------------|------|-------|-------|
