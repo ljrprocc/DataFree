@@ -393,12 +393,18 @@ def main_worker(gpu, ngpus_per_node, args):
         
         img_size = 32 if args.dataset.startswith('cifar') else 64
         
-        if args.loss == 'l1':
-            criterion = torch.nn.L1Loss()
-        elif args.loss == 'l2':
-            criterion = torch.nn.MSELoss()
+        if args.curr_option == 'none':
+            reduct = 'batchmean'
         else:
-            criterion = datafree.criterions.KLDiv(T=args.T)
+            reduct = 'none'
+        
+        if args.loss == 'l1':
+            criterion = torch.nn.L1Loss(reduction=reduct)
+        elif args.loss == 'l2':
+            criterion = torch.nn.MSELoss(reduction=reduct)
+        else:
+            criterion = datafree.criterions.KLDiv(T=args.T, reduction=reduct)
+            # criterion = datafree.criterions.KLDiv(T=args.T, reduction='batchmean')
         # t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
             L = 1
@@ -685,6 +691,7 @@ def main_worker(gpu, ngpus_per_node, args):
         if args.method == 'cudfkd':
             if epoch  > int(args.epochs * args.begin_fraction) and epoch < int(args.epochs * args.end_fraction) and args.curr_option != 'none': 
                 synthesizer.adv += args.grad_adv
+
         
         if vis_result is not None:
             for vis_name, vis_image in vis_result.items():
@@ -787,11 +794,17 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
             loss_s = criterion(s_out, t_out.detach())
 
         avg_diff = 0
+        # print(s_out, t_out)
+        
         if reduct == 'none':
+            real_loss_s = loss_s.sum(1) if args.loss == 'kl' else loss_s.mean(1)
+            # real_loss_s = loss_s
             with torch.no_grad():
-                g,v = datafree.datasets.utils.curr_v(l=loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
-            loss_s = (v * loss_s).sum() + g
-            avg_diff = (v * loss_s).sum() / v.sum()   
+                g,v = datafree.datasets.utils.curr_v(l=real_loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
+            # print(real_loss_s.mean(), v.mean(), g.mean())
+            # exit(-1)
+            loss_s = (v * real_loss_s).sum() / args.batch_size 
+            avg_diff = (v * real_loss_s).sum() / v.sum()   
         optimizer.zero_grad()
         if args.fp16:
             scaler_s = args.scaler_s

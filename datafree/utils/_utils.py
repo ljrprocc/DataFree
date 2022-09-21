@@ -407,17 +407,19 @@ class ImagePool(object):
         self.save = save
 
     def add(self, imgs, targets=None):
+        # print(imgs.shape)
         if self.save:
             save_image_batch(imgs, os.path.join( self.root, "%d.png"%(self._idx) ), pack=False)
         else:
-            x = [Image.fromarray(w)  for w in imgs.detach().cpu().clamp_(0,1).permute(0,3,1,2).numpy()*255]
+            # print(imgs.detach().cpu().clamp_(0,1).permute(0,2,3,1).numpy()[0].shape)
+            x = [Image.fromarray(w)  for w in (imgs.detach().cpu().clamp_(0,1).permute(0,2,3,1).numpy()*255).astype(np.uint8)]
             self.datas.extend(x)
         # self.datas.append(Image.fromarray(imgs.detach().cpu().permute()))
         self._idx+=1
 
     def visualize(self, batch_size):
         idx = torch.randint(0, len(self.data), (batch_size,))
-        save_image_batch()
+        imgs = []
 
     def get_dataset(self, transform=None, labeled=True):
         if self.save:

@@ -34,7 +34,8 @@ def curr_v(l, lamda, spl_type='hard'):
     elif spl_type == 'log':
         v = (1 + math.exp(-lamda)) / (1 + (l - lamda).exp())
         mu = 1 + math.exp(-lamda) - v
-        g = (mu * mu.log() + v * v.log() - lamda * v).sum()
+        g = (mu * mu.log() + v * (v+1e-8).log() - lamda * v)
+        # print(g, v.min(), v)
 
     else:
         raise NotImplementedError('Not implemented of spl type {}'.format(spl_type))
