@@ -18,11 +18,11 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 3 \
+--gpu 1 \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line34_d_2 \
+--log_tag cudfkd_L2_line34_retest \
 --begin_fraction 0.2 \
 --end_fraction 0.75 \
 --grad_adv 0.15 \

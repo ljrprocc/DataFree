@@ -169,7 +169,7 @@ class ProbSynthesizer(BaseSynthesis):
             # print(z)
             inputs = self.G_list[l](z, l=l)
             x, _ = torch.sort(inputs)
-            print(x)
+            # print(x)
             # print(inputs.mean(), inputs.max(), inputs.min())
         else:
             inputs = self.data_iter.next()
