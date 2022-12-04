@@ -1,21 +1,22 @@
 python datafree_kd.py \
 --method pretrained \
 --pretrained_mode ebm \
---pretrained_G_weight /data1/lijingru/JEMPP/runs/JEMPP/cifar10/0706093019@JEMPP-n_steps=10-in_steps=5-pyld_lr=0.2@43419/best_valid_ckpt.pt_eval_uncond_samples_0708024016/buffer.pt \
---dataset cifar10 \
+--pretrained_G_weight /data1/lijingru/GenKD/runs/JEMPP/cifar100/1202122905@JEMPP-n_steps=10-in_steps=5-pyld_lr=0.2@11622/best_valid_ckpt.pt_eval_uncond_samples_1203073542/buffer.pt \
+--dataset cifar100 \
 --batch_size 256 \
---teacher vgg11 \
---student resnet18 \
+--teacher resnet32x4 \
+--student resnet8x4 \
 --lr 0.1 \
---epochs 250 \
+--epochs 200 \
 --kd_steps_interval 5 \
 --ep_steps 400 \
 --g_steps_interval 1 \
 --T 20 \
 --act 0.001 \
 --balance 20 \
---gpu 4 \
---seed 10 \
---log_tag pretrained_ebm_offline_3 \
+--gpu 2 \
+--seed 0 \
+--log_tag pretrained_ebm_K_2 \
 --curr_option none \
---data_root /data/lijingru/cifar10/ 
+--log_fidelity \
+--data_root /data/lijingru/cifar100/ 
