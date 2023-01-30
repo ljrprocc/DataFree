@@ -14,23 +14,22 @@ python datafree_kd.py \
 --lr_g 0.001 \
 --begin_fraction 0.25 \
 --end_fraction 0.75 \
---grad_adv 0.5 \
+--grad_adv 0.35 \
 --adv 0. \
 --depth 2 \
 --T 20 \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 3 \
+--gpu 5 \
 --seed 95 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_noisy_d \
+--log_tag cudfkd_gen_b \
 --data_root ../cifar10/ \
 --no_feature \
 --adv_type kl \
---curr_option curr_log \
+--curr_option none \
 --lambda_0 2.0 \
---noisy \
 --log_fidelity \
 --loss kl

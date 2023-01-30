@@ -6,9 +6,9 @@ python datafree_kd.py \
 --student resnet18 \
 --epochs 250 \
 --lr 0.1 \
---kd_steps_interval 400 \
+--kd_steps 400 \
 --ep_steps 400 \
---g_steps_interval 200 \
+--g_steps 200 \
 --lr_g 1e-3 \
 --adv 0.5 \
 --bn 1.0 \

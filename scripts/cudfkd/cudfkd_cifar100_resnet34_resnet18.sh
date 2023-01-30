@@ -5,7 +5,7 @@ python datafree_kd.py \
 --teacher resnet34 \
 --student resnet18 \
 --lr 0.1 \
---epochs 300 \
+--epochs 400 \
 --kd_steps 5 \
 --kd_steps_interval 10 \
 --g_steps_interval 1 \
@@ -21,11 +21,11 @@ python datafree_kd.py \
 --lmda_ent -20 \
 --oh 1 \
 --act 0. \
---gpu 2 \
+--gpu 1 \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line33_g \
+--log_tag cudfkd_L2_line34 \
 --data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \

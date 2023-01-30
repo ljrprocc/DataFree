@@ -304,13 +304,20 @@ def main_worker(gpu, ngpus_per_node, args):
         teacher.conv1 = nn.Conv2d(3,64, kernel_size=(3,3), stride=(1,1), padding=(1,1))
         teacher.maxpool = nn.Sequential()
     args.normalizer = normalizer = datafree.utils.Normalizer(**registry.NORMALIZE_DICT[args.dataset])
-    # teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     if args.noisy:
-        teacher.load_state_dict(torch.load('checkpoints/scratch_i/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+        ckpt = torch.load('checkpoints/scratch_i/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict']
     else:
-        teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+        ckpt = torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict']
+    # teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
+    # if args.dataset == 'tiny_imagenet':
+    #     ckpt
+    # if args.noisy:
+    #     teacher.load_state_dict()
+    # else:
+    #     teacher.load_state_dict(torch.load('checkpoints/scratch/%s_%s.pth'%(args.dataset, args.teacher), map_location='cpu')['state_dict'])
     student = prepare_model(student)
     teacher = prepare_model(teacher)
+    teacher.load_state_dict(ckpt)
     criterion = datafree.criterions.KLDiv(T=args.T)
     kd_steps = args.kd_steps_interval.split(',')
     kd_steps = [int(x) for x in kd_steps]
@@ -355,7 +362,7 @@ def main_worker(gpu, ngpus_per_node, args):
                  nz=nz, num_classes=num_classes, img_size=(3, 32, 32), 
                  # if feature layers==None, all convolutional layers will be used by CMI.
                  feature_layers=feature_layers, bank_size=40960, n_neg=4096, head_dim=256, init_dataset=args.cmi_init,
-                 iterations=args.g_steps[0], lr_g=args.lr_g, progressive_scale=False,
+                 iterations=args.g_steps, lr_g=args.lr_g, progressive_scale=False,
                  synthesis_batch_size=args.synthesis_batch_size, sample_batch_size=args.batch_size, 
                  adv=args.adv, bn=args.bn, oh=args.oh, cr=args.cr, cr_T=args.cr_T,
                  save_dir=args.save_dir, transform=ori_dataset.transform,
@@ -399,11 +406,11 @@ def main_worker(gpu, ngpus_per_node, args):
             reduct = 'none'
         
         if args.loss == 'l1':
-            criterion = torch.nn.L1Loss(reduction=reduct)
+            criterion = torch.nn.L1Loss()
         elif args.loss == 'l2':
             criterion = torch.nn.MSELoss(reduction=reduct)
         else:
-            criterion = datafree.criterions.KLDiv(T=args.T, reduction=reduct)
+            criterion = datafree.criterions.KLDiv(T=args.T)
             # criterion = datafree.criterions.KLDiv(T=args.T, reduction='batchmean')
         # t_criterion = datafree.criterions.KLDiv(T=args.T)
         if args.no_feature:
@@ -797,13 +804,13 @@ def train(synthesizer, model, criterion, optimizer, args, kd_step, l=0, global_i
         # print(s_out, t_out)
         
         if reduct == 'none':
-            real_loss_s = loss_s.sum(1) if args.loss == 'kl' else loss_s.mean(1)
-            # real_loss_s = loss_s
+            #real_loss_s = loss_s.sum(1) if args.loss == 'kl' else loss_s.mean(1)
+            real_loss_s = loss_s
             with torch.no_grad():
                 g,v = datafree.datasets.utils.curr_v(l=real_loss_s, lamda=lamda, spl_type=args.curr_option.split('_')[1])
             # print(real_loss_s.mean(), v.mean(), g.mean())
             # exit(-1)
-            loss_s = (v * real_loss_s).sum() / args.batch_size 
+            loss_s = (v * real_loss_s).sum()
             avg_diff = (v * real_loss_s).sum() / v.sum()   
         optimizer.zero_grad()
         if args.fp16:

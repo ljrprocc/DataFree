@@ -3,9 +3,9 @@ python datafree_kd.py \
 --dataset cifar100 \
 --batch_size 1024 \
 --teacher wrn40_2 \
---student wrn16_2 \
+--student wrn40_1 \
 --lr 0.1 \
---epochs 300 \
+--epochs 500 \
 --kd_steps 5 \
 --kd_steps_interval 10 \
 --g_steps_interval 1 \
@@ -22,10 +22,10 @@ python datafree_kd.py \
 --seed 0 \
 --bn 1 \
 --save_dir run/cudfkd_test \
---log_tag cudfkd_L2_line34_retest \
+--log_tag cudfkd_L2_line38_retest_e \
 --begin_fraction 0.2 \
 --end_fraction 0.75 \
---grad_adv 0.15 \
+--grad_adv 0.12 \
 --data_root ../cifar100/ \
 --no_feature \
 --adv_type kl \

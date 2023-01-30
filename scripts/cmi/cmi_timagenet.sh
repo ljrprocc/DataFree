@@ -1,0 +1,30 @@
+CUDA_VISIBLE_DEVICES=0,5 python datafree_kd.py \
+--method cmi \
+--dataset tiny_imagenet \
+--batch_size 256 \
+--teacher resnet34 \
+--student resnet18 \
+--lr 0.1 \
+--kd_steps 400 \
+--ep_steps 400 \
+--g_steps 200 \
+--data_root ../timagenet/ \
+--multiprocessing_distributed \
+--world_size 2 \
+--rank 0 \
+--epochs 300 \
+--lr_g 1e-3 \
+--adv 0.5 \
+--bn 1.0 \
+--oh 1.0 \
+--cr 0.8 \
+--cr_T 0.2 \
+--act 0 \
+--balance 0 \
+--seed 0 \
+--T 2 \
+--gpu 4 \
+--curr_option none \
+--save_dir run/cmi_timangenet2 \
+--rank 0 \
+--log_tag cmi_timangenet
